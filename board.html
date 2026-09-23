@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jeopardy Board Display</title>
+  <link rel="stylesheet" href="src/css/style.css">
+</head>
+<body>
+
+  <div id="board-container">
+    
+    <!-- Top Round Details header -->
+    <header id="board-header" class="glass" style="padding: 16px 24px; display: flex; justify-content: space-between; align-items: center;">
+      <h2 id="round-title">Trivia Board</h2>
+      <div id="countdown-display" style="display: none; align-items: center; gap: 10px;">
+        <span style="font-family: var(--font-family-header); font-weight: 700; color: var(--color-accent);">Time Remaining:</span>
+        <div class="timer-bar-container">
+          <div id="timer-fill" class="timer-bar-fill"></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Categories and Clues Grid -->
+    <main id="jeopardy-grid-container" style="flex-grow: 1; display: flex; flex-direction: column;">
+      <div id="jeopardy-grid" class="jeopardy-grid">
+        <!-- Rendered dynamically -->
+      </div>
+    </main>
+
+    <!-- Immersive Scoreboard Footer -->
+    <footer id="board-scoreboard">
+      <!-- Rendered dynamically -->
+    </footer>
+
+  </div>
+
+  <!-- Fullscreen Interactive Clue Zoom Overlay -->
+  <div id="clue-zoom-overlay" class="clue-overlay">
+    
+    <!-- Buzz in alert indicator -->
+    <div id="buzz-alert" class="buzz-alert-overlay" style="display: none;">
+      <span class="team-color-indicator" id="buzz-team-color"></span>
+      <span id="buzz-team-name">Team Name</span>
+    </div>
+
+    <div class="clue-zoom-content">
+      
+      <!-- Daily Double / Final Jeopardy Card -->
+      <div id="special-card" class="daily-double-card" style="display: none;">
+        <h1 id="special-title" class="dd-title">Daily Double</h1>
+        <p class="dd-wager-prompt" id="special-prompt">Place your wager...</p>
+        <h2 id="special-wager-display" class="dd-wager-reveal" style="display: none;">$0</h2>
+      </div>
+
+      <!-- Embedded Media elements loaded dynamically -->
+      <div id="clue-media" class="clue-media-container" style="display: none;">
+        <!-- Renders image tags -->
+      </div>
+
+      <!-- Main Clue Question text -->
+      <p id="clue-display-text" class="clue-text">Clue prompt renders here...</p>
+
+      <!-- Correct Answer text shown when host triggers reveal -->
+      <p id="clue-answer-text" class="clue-answer-text" style="display: none;"></p>
+
+    </div>
+  </div>
+  
+  <!-- Fullscreen Category Introduction Slide Overlay -->
+  <div id="category-intro-overlay" class="clue-overlay" style="display: none;">
+    <div class="clue-zoom-content">
+      <h3 style="font-size: 20px; text-transform: uppercase; color: var(--color-accent); font-family: var(--font-family-header); font-weight: 700; letter-spacing: 0.1em; margin-bottom: 10px;">
+        Introducing Category
+      </h3>
+      <h1 id="intro-category-name" class="dd-title" style="font-size: 64px; text-shadow: 0 0 30px var(--color-accent-glow); margin-bottom: 20px;">
+        CATEGORY NAME
+      </h1>
+      <div style="font-size: 16px; color: var(--color-text-muted);" id="intro-category-count">
+        1 of 5
+      </div>
+    </div>
+  </div>
+
+  <!-- State & Audio Script Links -->
+  <script src="src/js/app.js"></script>
+  <script src="src/js/audio.js"></script>
+  <script src="src/js/board-ui.js"></script>
+</body>
+</html>

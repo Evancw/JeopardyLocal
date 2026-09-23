@@ -1,0 +1,727 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+
+:root {
+  color-scheme: dark;
+  /* Dynamic Palette */
+  --bg-dark: hsl(222, 47%, 6%);
+  --bg-card: hsla(223, 47%, 12%, 0.6);
+  --border-glass: hsla(223, 47%, 25%, 0.4);
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  
+  --color-primary: hsl(210, 100%, 50%);
+  --color-primary-glow: hsla(210, 100%, 50%, 0.15);
+  --color-accent: hsl(38, 92%, 50%); /* Amber Gold */
+  --color-accent-glow: hsla(38, 92%, 50%, 0.15);
+  
+  --color-correct: hsl(142, 70%, 45%);
+  --color-incorrect: hsl(350, 89%, 60%);
+  --color-text: hsl(210, 40%, 98%);
+  --color-text-muted: hsl(215, 20%, 65%);
+  
+  --font-family-header: 'Outfit', sans-serif;
+  --font-family-body: 'Inter', sans-serif;
+
+  /* Layout Spacings & Blurs */
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+  --blur-glass-light: 12px;
+  --blur-glass-heavy: 20px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--color-text);
+  font-family: var(--font-family-body);
+  overflow-x: hidden;
+  height: 100vh;
+  width: 100vw;
+  background-image: 
+    radial-gradient(at 0% 0%, hsla(210, 100%, 15%, 0.3) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, hsla(260, 100%, 15%, 0.2) 0px, transparent 50%);
+  background-attachment: fixed;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar Customization */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-dark);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-glass);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary);
+}
+
+/* Glassmorphism Classes */
+.glass {
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--blur-glass-light));
+  -webkit-backdrop-filter: blur(var(--blur-glass-light));
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-glass);
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
+}
+
+.glass:hover {
+  border-color: hsla(210, 100%, 50%, 0.4);
+}
+
+/* Unified Card Base Definition */
+.category-card,
+.clue-card,
+.team-score-card,
+.host-clue-card,
+.host-team-card {
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--shadow-glass);
+  border-radius: var(--card-radius, var(--radius-md));
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.host-clue-card,
+.host-team-card {
+  --card-radius: var(--radius-sm);
+}
+
+/* Typography & Layouts */
+h1, h2, h3, h4 {
+  font-family: var(--font-family-header);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.btn {
+  background: var(--btn-bg, var(--bg-card));
+  color: var(--btn-color, var(--color-text));
+  border: 1px solid var(--btn-border, var(--border-glass));
+  padding: 10px 20px;
+  font-family: var(--font-family-header);
+  font-weight: 600;
+  font-size: 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.btn:hover {
+  background: var(--btn-hover-bg, var(--color-primary));
+  border-color: var(--btn-hover-border, var(--color-primary));
+  color: var(--btn-hover-color, var(--color-text));
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px var(--btn-hover-glow, var(--color-primary-glow));
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-accent {
+  --btn-bg: hsla(38, 92%, 50%, 0.15);
+  --btn-border: hsla(38, 92%, 50%, 0.3);
+  --btn-hover-bg: var(--color-accent);
+  --btn-hover-border: var(--color-accent);
+  --btn-hover-glow: var(--color-accent-glow);
+}
+
+.btn-correct {
+  --btn-bg: hsla(142, 70%, 45%, 0.15);
+  --btn-border: hsla(142, 70%, 45%, 0.3);
+  --btn-color: hsl(142, 70%, 75%);
+  --btn-hover-bg: var(--color-correct);
+  --btn-hover-border: var(--color-correct);
+  --btn-hover-color: var(--color-text);
+  --btn-hover-glow: hsla(142, 70%, 45%, 0.25);
+}
+
+.btn-incorrect {
+  --btn-bg: hsla(350, 89%, 60%, 0.15);
+  --btn-border: hsla(350, 89%, 60%, 0.3);
+  --btn-color: hsl(350, 89%, 75%);
+  --btn-hover-bg: var(--color-incorrect);
+  --btn-hover-border: var(--color-incorrect);
+  --btn-hover-color: var(--color-text);
+  --btn-hover-glow: hsla(350, 89%, 60%, 0.25);
+}
+
+.btn-correct.active-grade {
+  background: var(--color-correct) !important;
+  border-color: var(--color-correct) !important;
+  color: var(--color-text) !important;
+  box-shadow: 0 4px 12px hsla(142, 70%, 45%, 0.4);
+}
+
+.btn-incorrect.active-grade {
+  background: var(--color-incorrect) !important;
+  border-color: var(--color-incorrect) !important;
+  color: var(--color-text) !important;
+  box-shadow: 0 4px 12px hsla(350, 89%, 60%, 0.4);
+}
+
+/* ==========================================================================
+   GAME BOARD VIEW (board.html)
+   ========================================================================== */
+
+#board-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 24px;
+}
+
+#board-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+#round-title {
+  font-size: 28px;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #fff 0%, var(--color-text-muted) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* The Grid */
+.jeopardy-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+  flex-grow: 1;
+  margin-bottom: 24px;
+  contain: layout style paint;
+}
+
+.category-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px;
+  background: linear-gradient(135deg, hsla(223, 47%, 18%, 0.8) 0%, hsla(223, 47%, 10%, 0.8) 100%);
+  min-width: 0;
+}
+
+.category-title {
+  font-family: var(--font-family-header);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 18px;
+  letter-spacing: 0.05em;
+  color: var(--color-accent);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.clue-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-family: var(--font-family-header);
+  font-weight: 800;
+  color: var(--color-primary);
+  background: var(--bg-card);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.clue-card:not(.spent):hover {
+  transform: scale(1.03);
+  border-color: var(--color-primary);
+  background: hsla(210, 100%, 50%, 0.1);
+  box-shadow: 0 0 20px var(--color-primary-glow);
+}
+
+.clue-card.spent {
+  visibility: hidden;
+}
+
+/* Clue Zoom Overlay */
+.clue-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(4, 8, 17, 0.95);
+  backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+  padding: 40px;
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
+}
+
+.clue-overlay.active {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.clue-zoom-content {
+  max-width: 900px;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+}
+
+.clue-text {
+  font-size: calc(40px * var(--clue-font-size-multiplier, 1));
+  font-weight: 600;
+  line-height: 1.4;
+  text-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  animation: zoomFadeIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.clue-answer-text {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-correct);
+  text-transform: uppercase;
+  background: hsla(142, 70%, 45%, 0.1);
+  border: 1px solid hsla(142, 70%, 45%, 0.3);
+  padding: 12px 24px;
+  border-radius: 8px;
+  margin-top: 20px;
+  box-shadow: 0 0 15px hsla(142, 70%, 45%, 0.2);
+  display: inline-block;
+  animation: slideDownFade 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.clue-media-container {
+  max-height: 45vh;
+  max-width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid var(--border-glass);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clue-media-container img {
+  max-height: 45vh;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+/* Buzzed-in Team Alert Alert */
+.buzz-alert-overlay {
+  position: absolute;
+  top: 40px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 32px;
+  border-radius: 50px;
+  font-size: 24px;
+  font-weight: 700;
+  text-transform: uppercase;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  animation: slideDownFade 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Timer Bar */
+.timer-bar-container {
+  width: 300px;
+  height: 8px;
+  background: var(--border-glass);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.timer-bar-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--color-accent);
+  box-shadow: 0 0 10px var(--color-accent-glow);
+  transition: width 0.1s linear;
+}
+
+.timer-bar-fill.warning {
+  background: var(--color-incorrect);
+}
+
+/* Roll-Up Scoreboard */
+#board-scoreboard {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  padding: 10px 0;
+}
+
+.team-score-card {
+  min-width: 180px;
+  padding: 16px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.team-score-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: var(--team-color, var(--color-primary));
+}
+
+.team-score-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 20px var(--team-color);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  z-index: -1;
+}
+
+.team-score-card.active-buzz {
+  border-color: var(--team-color);
+}
+
+.team-score-card.active-buzz::after {
+  animation: pulseOpacity 1.5s infinite alternate;
+}
+
+.score-team-name {
+  font-family: var(--font-family-header);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.score-amount {
+  font-family: var(--font-family-header);
+  font-size: 32px;
+  font-weight: 800;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.score-amount.negative {
+  color: var(--color-incorrect);
+}
+
+/* Daily Double / Final Jeopardy Bidding Card */
+.daily-double-card {
+  text-align: center;
+  animation: cardFlip 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dd-title {
+  font-size: calc(64px * var(--clue-font-size-multiplier, 1));
+  font-family: var(--font-family-header);
+  font-weight: 800;
+  color: var(--color-accent);
+  text-transform: uppercase;
+  text-shadow: 0 4px 16px var(--color-accent-glow);
+  margin-bottom: 20px;
+}
+
+.dd-wager-prompt {
+  font-size: 24px;
+  color: var(--color-text-muted);
+  margin-bottom: 12px;
+}
+
+.dd-wager-reveal {
+  font-size: calc(48px * var(--clue-font-size-multiplier, 1));
+  font-weight: 800;
+  color: var(--color-text);
+  margin-top: 10px;
+}
+
+/* Animations */
+@keyframes zoomFadeIn {
+  0% { transform: scale3d(0.7, 0.7, 1); opacity: 0; }
+  100% { transform: scale3d(1, 1, 1); opacity: 1; }
+}
+
+@keyframes slideDownFade {
+  0% { transform: translate3d(0, -40px, 0); opacity: 0; }
+  100% { transform: translate3d(0, 0, 0); opacity: 1; }
+}
+
+@keyframes pulseOpacity {
+  0% { opacity: 0.1; }
+  100% { opacity: 0.7; }
+}
+
+@keyframes cardFlip {
+  0% { transform: rotate3d(0, 1, 0, 90deg); opacity: 0; }
+  100% { transform: rotate3d(0, 1, 0, 0deg); opacity: 1; }
+}
+
+/* ==========================================================================
+   HOST VIEW (host.html)
+   ========================================================================== */
+
+.host-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  height: 100vh;
+}
+
+/* Left Sidebar setup controls */
+#host-sidebar {
+  background: hsla(223, 47%, 8%, 0.8);
+  border-right: 1px solid var(--border-glass);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  overflow-y: auto;
+}
+
+/* Main Panel area */
+#host-main {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+/* Setup Overlay Panel */
+.setup-panel {
+  max-width: 600px;
+  margin: 40px auto;
+  padding: 32px;
+  content-visibility: auto;
+  contain-intrinsic-size: 200px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  font-family: var(--font-family-header);
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--color-text-muted);
+}
+
+/* Unified Dark Input Fields styling */
+.input-field,
+.form-group input[type="text"], 
+.form-group select,
+.score-adjuster input {
+  width: var(--input-width, 100%);
+  padding: var(--input-pad, 12px);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-glass);
+  border-radius: 8px;
+  color: var(--color-text);
+  font-size: var(--input-font, 16px);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input-field:focus,
+.form-group input[type="text"]:focus, 
+.form-group select:focus,
+.score-adjuster input:focus {
+  border-color: var(--color-primary);
+}
+
+/* Compact Host Clue Grid */
+.host-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  flex-grow: 1;
+  width: 100%;
+  contain: layout style paint;
+}
+
+.host-clue-card {
+  padding: 12px;
+  background: var(--bg-card);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 100px;
+  transition: all 0.2s;
+  min-width: 0;
+}
+
+.host-clue-card:hover {
+  border-color: var(--color-accent);
+}
+
+.host-clue-card.spent {
+  opacity: 0.35;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.host-clue-card.daily-double {
+  border-color: var(--color-accent);
+}
+
+.host-card-val {
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.host-card-category {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.host-card-preview {
+  font-size: 11px;
+  margin-top: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted);
+}
+
+/* Control Panel Drawer / Overlay on Host Side */
+.host-control-drawer {
+  background: hsla(223, 47%, 10%, 0.95);
+  border: 1px solid var(--border-glass);
+  border-radius: 16px;
+  padding: 24px;
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-shadow: var(--shadow-glass);
+  content-visibility: auto;
+  contain-intrinsic-size: 200px;
+}
+
+.host-question-display {
+  background: rgba(0,0,0,0.3);
+  padding: 16px;
+  border-radius: 8px;
+  border-left: 4px solid var(--color-accent);
+}
+
+.host-ans-reveal {
+  font-weight: 700;
+  color: var(--color-correct);
+  font-size: 18px;
+  margin-top: 8px;
+}
+
+/* Host Panel Buzzer buttons and Score buttons */
+.host-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.team-list-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.host-team-card {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.host-team-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.team-color-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.score-adjuster {
+  display: flex;
+  gap: 4px;
+}
+
+.score-adjuster input {
+  --input-width: 70px;
+  --input-pad: 6px;
+  --input-font: 12px;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.score-adjuster button {
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--border-glass);
+  border: none;
+  color: #fff;
+  border-radius: 4px;
+}
+.score-adjuster button:hover {
+  background: var(--color-primary);
+}
+
+#host-edit-teams-container {
+  content-visibility: auto;
+  contain-intrinsic-size: 200px;
+}
