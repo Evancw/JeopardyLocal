@@ -84,6 +84,7 @@ try {
 
   // 2. Inline Javascript files sequentially
   const scripts = [
+    { name: "deck.js", src: "src/js/deck.js" },
     { name: "app.js", src: "src/js/app.js" },
     { name: "audio.js", src: "src/js/audio.js" },
     { name: "board-ui.js", src: "src/js/board-ui.js" },

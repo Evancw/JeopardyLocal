@@ -172,8 +172,8 @@ onReady(() => {
           <span style="font-weight: bold; color: var(--color-accent);">Team ${index + 1}</span>
         </div>
         <div style="display: flex; gap: 8px;">
-          <input type="text" class="team-name-edit-input input-field" data-id="${team.id}" value="${team.name}" style="--input-pad: 4px 8px; --input-font: 12px; border-radius: 4px; flex: 1;">
-          <input type="color" class="team-color-edit-input input-field" data-id="${team.id}" value="${team.color}" style="--input-width: 32px; --input-pad: 0; border-radius: 4px; height: 26px; background: none; cursor: pointer;">
+          <input type="text" class="team-name-edit-input input-field" data-id="${team.id}" value="${escapeHTML(team.name)}" style="--input-pad: 4px 8px; --input-font: 12px; border-radius: 4px; flex: 1;">
+          <input type="color" class="team-color-edit-input input-field" data-id="${team.id}" value="${escapeHTML(team.color)}" style="--input-width: 32px; --input-pad: 0; border-radius: 4px; height: 26px; background: none; cursor: pointer;">
         </div>
       `;
       
@@ -275,31 +275,48 @@ onReady(() => {
   // Trigger File Dialog on button click
   csvUploadTrigger.addEventListener('click', () => csvUploadInput.click());
 
-  csvUploadInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
+  let importSequence = 0;
+  function readDeckFile() {
+    const file = csvUploadInput.files[0];
     if (!file) return;
-
+    const sequence = ++importSequence;
+    startGameBtn.disabled = true;
+    const details = document.getElementById('import-details');
+    const report = document.getElementById('import-report');
+    const fail = message => {
+      uploadStatus.textContent = 'Import failed. Correct the issues below and try again.';
+      uploadStatus.style.color = 'var(--color-incorrect)';
+      if (details) details.textContent = message;
+      if (report) { report.hidden = false; report.open = true; }
+    };
+    if (file.size > 2 * 1024 * 1024) { fail('File exceeds the 2 MB limit.'); return; }
     uploadStatus.textContent = `Reading ${file.name}...`;
-    
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onerror = () => { if (sequence === importSequence) fail('The file could not be read. Please choose it again.'); };
+    reader.onload = event => {
+      if (sequence !== importSequence) return;
       try {
-        const deck = processCSVDeck(event.target.result);
+        const separator = document.getElementById('csv-delimiter')?.value;
+        const deck = processCSVDeck(event.target.result, { delimiter: separator === 'tab' ? '\t' : separator });
         gameState.deck = deck;
         gameState.deckName = file.name;
         saveStateToStorage();
-        uploadStatus.textContent = `Success! Loaded: ${file.name}`;
+        uploadStatus.textContent = `Success! Loaded ${deck.importSummary.count} clues: ${file.name}`;
         uploadStatus.style.color = 'var(--color-correct)';
+        const lines = ['singleJeopardy', 'doubleJeopardy'].flatMap(round => deck[round].categories.map(cat =>
+          `${round === 'singleJeopardy' ? 'Single' : 'Double'} · ${cat.name}: ${cat.clues.length} clues ($${cat.clues.map(c => c.value).join(', $')})`));
+        if (deck.finalJeopardy) lines.push(`Final · ${deck.finalJeopardy.category}`);
+        lines.push(...deck.importSummary.warnings);
+        if (details) details.textContent = lines.join('\n');
+        if (report) { report.hidden = false; report.open = deck.importSummary.warnings.length > 0; }
         startGameBtn.disabled = false;
-      } catch (err) {
-        console.error(err);
-        uploadStatus.textContent = `Error: ${err.message}`;
-        uploadStatus.style.color = 'var(--color-incorrect)';
-        startGameBtn.disabled = true;
-      }
+      } catch (error) { fail(error.message); }
     };
-    reader.readAsText(file);
-  });
+    reader.readAsText(file, document.getElementById('csv-encoding')?.value || 'utf-8');
+  }
+  csvUploadInput.addEventListener('change', readDeckFile);
+  document.getElementById('csv-encoding')?.addEventListener('change', readDeckFile);
+  document.getElementById('csv-delimiter')?.addEventListener('change', readDeckFile);
 
   // Render dynamic team rows based on selection
   teamsCountSelect.addEventListener('change', renderTeamSetupInputs);
@@ -336,8 +353,8 @@ onReady(() => {
 
       row.innerHTML = `
         <span style="font-weight: 700; color: var(--color-text-muted); font-size: 14px;">T${i+1}:</span>
-        <input type="text" class="team-name-input" placeholder="Team ${i+1} Name" value="${nameVal}" style="flex-grow: 1;">
-        <input type="color" class="team-color-input" value="${colorVal}" style="width: 50px; height: 42px; padding: 2px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 8px; cursor: pointer;">
+        <input type="text" class="team-name-input" placeholder="Team ${i+1} Name" value="${escapeHTML(nameVal)}" style="flex-grow: 1;">
+        <input type="color" class="team-color-input" value="${escapeHTML(colorVal)}" style="width: 50px; height: 42px; padding: 2px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 8px; cursor: pointer;">
       `;
       teamSetupRows.appendChild(row);
     }
@@ -391,8 +408,8 @@ onReady(() => {
       
       card.innerHTML = `
         <div class="host-team-card-header">
-          <span style="font-weight: 700;">${team.name}</span>
-          <span class="team-color-indicator" style="background-color: ${team.color};"></span>
+          <span style="font-weight: 700;">${escapeHTML(team.name)}</span>
+          <span class="team-color-indicator" style="background-color: ${escapeHTML(team.color)};"></span>
         </div>
         <div class="score-adjuster">
           <button class="score-minus-btn" data-id="${team.id}">-</button>
@@ -520,7 +537,7 @@ onReady(() => {
           </p>
           <div class="glass" style="padding: 24px; display: inline-block; margin-bottom: 30px; border-color: var(--color-accent);">
             <h1 style="font-size: 32px; font-weight: 800; color: var(--color-text); text-transform: uppercase;">
-              ${activeCategory.name}
+              ${escapeHTML(activeCategory.name)}
             </h1>
             <div style="font-size: 14px; color: var(--color-text-muted); margin-top: 10px;">
               Category ${idx + 1} of ${categories.length}
@@ -607,7 +624,7 @@ onReady(() => {
           rowsHtml += `
             <div style="display: flex; flex-direction: column; margin-bottom: 12px; padding: 10px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px;">
               <div style="display: flex; justify-content: space-between; align-items: center; gap: 15px;">
-                <span style="font-weight: 600; color: ${team.color}; font-size: 16px;">${team.name}</span>
+                <span style="font-weight: 600; color: ${escapeHTML(team.color)}; font-size: 16px;">${escapeHTML(team.name)}</span>
                 <div style="display: flex; align-items: center; gap: 10px;">
                   <span style="color: var(--color-text-muted);">Max: $${team.score}</span>
                   <input type="number" class="final-wager-input" data-team-id="${team.id}" min="0" max="${team.score}" placeholder="Wager" style="width: 120px; padding: 8px; background: #000; border: 1px solid var(--border-glass); border-radius: 6px; color:#fff; text-align: center;">
@@ -713,7 +730,7 @@ onReady(() => {
           scoringHtml += `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px; margin-bottom: 12px; gap: 15px;">
               <div>
-                <span style="font-weight: 700; color: ${team.color}; font-size: 16px; display: block;">${team.name}</span>
+                <span style="font-weight: 700; color: ${escapeHTML(team.color)}; font-size: 16px; display: block;">${escapeHTML(team.name)}</span>
                 <span style="color: var(--color-text-muted); font-size: 13px;">Score: $${team.score} | Wager: $${team.finalWager}</span>
               </div>
               <div style="display: flex; gap: 8px;">
@@ -735,8 +752,8 @@ onReady(() => {
             
             <div style="padding: 16px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; margin-bottom: 10px;">
               <h4 style="text-transform: uppercase; font-size: 12px; color: var(--color-accent); margin-bottom: 6px;">Clue & Reference Answer</h4>
-              <p style="font-size: 18px; font-weight: 500; margin-bottom: 8px;">${gameState.deck.finalJeopardy.question}</p>
-              <p style="font-size: 15px; color: var(--color-correct); font-weight: 700; margin: 0;">Answer: ${gameState.deck.finalJeopardy.answer}</p>
+              <p style="font-size: 18px; font-weight: 500; margin-bottom: 8px;">${escapeHTML(gameState.deck.finalJeopardy.question)}</p>
+              <p style="font-size: 15px; color: var(--color-correct); font-weight: 700; margin: 0;">Answer: ${escapeHTML(gameState.deck.finalJeopardy.answer)}</p>
             </div>
             
             <div style="display: flex; flex-direction: column; gap: 8px; max-width: 700px; width: 100%; margin: 0 auto;">
@@ -881,7 +898,7 @@ onReady(() => {
       card.className = 'category-card';
       card.style.padding = '8px';
       card.style.borderStyle = 'dashed';
-      card.innerHTML = `<span class="category-title" style="font-size: 14px;">${cat.name}</span>`;
+      card.innerHTML = `<span class="category-title" style="font-size: 14px;">${escapeHTML(cat.name)}</span>`;
       hostClueGrid.appendChild(card);
     });
 
@@ -893,7 +910,7 @@ onReady(() => {
         const card = document.createElement('div');
         
         if (clue) {
-          const spentKey = `${gameState.gamePhase}-${cat.name}-${clue.value}`;
+          const spentKey = clue.id;
           const isSpent = gameState.spentClues.includes(spentKey);
           
           card.className = `host-clue-card ${isSpent ? 'spent' : ''} ${clue.isDailyDouble ? 'daily-double' : ''}`;
@@ -906,8 +923,8 @@ onReady(() => {
               <span class="host-card-val">$${clue.value}</span>
               ${clue.isDailyDouble ? '<span style="font-size:10px; font-weight:700; color:var(--color-accent);">DD</span>' : ''}
             </div>
-            <div class="host-card-category">${cat.name}</div>
-            <div class="host-card-preview">${clue.question}</div>
+            <div class="host-card-category">${escapeHTML(cat.name)}</div>
+            <div class="host-card-preview">${escapeHTML(clue.question)}</div>
           `;
         } else {
           card.className = 'host-clue-card spent';
@@ -1120,7 +1137,7 @@ onReady(() => {
     // Mark clue as spent
     if (gameState.gamePhase !== 'final_jeopardy') {
       const categoryName = gameState.currentClue.category || controllerCategory.textContent.split(' - ')[0];
-      const spentKey = `${gameState.gamePhase}-${categoryName}-${gameState.currentClue.value}`;
+      const spentKey = gameState.currentClue.id;
       if (!gameState.spentClues.includes(spentKey)) {
         gameState.spentClues.push(spentKey);
       }
@@ -1203,7 +1220,7 @@ onReady(() => {
     // Final Jeopardy doesn't have grid keys
     if (gameState.gamePhase !== 'final_jeopardy') {
       const categoryName = gameState.currentClue.category || controllerCategory.textContent.split(' - ')[0];
-      const spentKey = `${gameState.gamePhase}-${categoryName}-${gameState.currentClue.value}`;
+      const spentKey = gameState.currentClue.id;
       if (!gameState.spentClues.includes(spentKey)) {
         gameState.spentClues.push(spentKey);
       }
@@ -1263,7 +1280,7 @@ onReady(() => {
       // Clue dead: Close clue and force spend
       if (gameState.gamePhase !== 'final_jeopardy') {
         const categoryName = gameState.currentClue.category || controllerCategory.textContent.split(' - ')[0];
-        const spentKey = `${gameState.gamePhase}-${categoryName}-${gameState.currentClue.value}`;
+        const spentKey = gameState.currentClue.id;
         if (!gameState.spentClues.includes(spentKey)) {
           gameState.spentClues.push(spentKey);
         }
@@ -1298,7 +1315,7 @@ onReady(() => {
     
     if (gameState.gamePhase !== 'final_jeopardy') {
       const categoryName = gameState.currentClue.category || controllerCategory.textContent.split(' - ')[0];
-      const spentKey = `${gameState.gamePhase}-${categoryName}-${gameState.currentClue.value}`;
+      const spentKey = gameState.currentClue.id;
       if (!gameState.spentClues.includes(spentKey)) {
         gameState.spentClues.push(spentKey);
       }

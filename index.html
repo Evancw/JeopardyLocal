@@ -52,6 +52,11 @@
           Choose Game Board CSV
         </button>
         <p id="upload-status" style="margin-top: 8px; font-size: 14px; color: var(--color-text-muted); text-align: center; font-style: italic;">No file selected.</p>
+        <div class="import-options">
+          <label>Text encoding <select id="csv-encoding"><option value="utf-8">UTF-8 (recommended)</option><option value="windows-1252">Windows-1252</option><option value="utf-16le">UTF-16 LE</option></select></label>
+          <label>Separator <select id="csv-delimiter"><option value="">Detect automatically</option><option value=",">Comma</option><option value=";">Semicolon</option><option value="tab">Tab</option></select></label>
+        </div>
+        <details id="import-report" hidden><summary>Deck preview and diagnostics</summary><pre id="import-details"></pre></details>
       </div>
 
       <!-- Dynamic Teams selection -->
@@ -286,6 +291,7 @@
   </div>
 
   <!-- State & Audio Script Links -->
+  <script src="src/js/deck.js"></script>
   <script src="src/js/app.js"></script>
   <script src="src/js/audio.js"></script>
   <script src="src/js/board-ui.js"></script>

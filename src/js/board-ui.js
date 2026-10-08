@@ -316,10 +316,10 @@ onReady(() => {
             ${runnersUp.map((team, idx) => {
               const rank = idx + champions.length + 1;
               return `
-                <div class="glass" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; border-radius: 12px; border-left: 4px solid ${team.color};">
+                <div class="glass" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; border-radius: 12px; border-left: 4px solid ${escapeHTML(team.color)};">
                   <div style="display: flex; align-items: center; gap: 12px;">
                     <span style="font-weight: 800; color: var(--color-text-muted); font-size: 16px;">#${rank}</span>
-                    <span style="font-weight: 600; font-size: 18px;">${team.name}</span>
+                    <span style="font-weight: 600; font-size: 18px;">${escapeHTML(team.name)}</span>
                   </div>
                   <span style="font-weight: 700; font-size: 20px; font-family: var(--font-family-header); color: ${team.score < 0 ? 'var(--color-incorrect)' : 'var(--color-text)'}">$${team.score}</span>
                 </div>
@@ -381,7 +381,7 @@ onReady(() => {
               line-height: 1.1;
               text-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
               font-family: var(--font-family-header);
-            ">${champNames}</h1>
+            ">${escapeHTML(champNames)}</h1>
             
             <div style="
               display: inline-block;
@@ -433,7 +433,7 @@ onReady(() => {
       card.style.setProperty('--team-color', team.color);
       
       card.innerHTML = `
-        <div class="score-team-name">${team.name}</div>
+        <div class="score-team-name">${escapeHTML(team.name)}</div>
         <div class="score-amount ${isNegative ? 'negative' : ''}">$${team.score}</div>
       `;
       
@@ -459,7 +459,7 @@ onReady(() => {
     categories.forEach(cat => {
       const catCard = document.createElement('div');
       catCard.className = 'category-card';
-      catCard.innerHTML = `<span class="category-title">${cat.name}</span>`;
+      catCard.innerHTML = `<span class="category-title">${escapeHTML(cat.name)}</span>`;
       gridEl.appendChild(catCard);
     });
     
@@ -472,7 +472,7 @@ onReady(() => {
         const clueCard = document.createElement('div');
         
         if (clue) {
-          const spentKey = `${gameState.gamePhase}-${cat.name}-${clue.value}`;
+          const spentKey = clue.id;
           const isSpent = gameState.spentClues.includes(spentKey);
           
           clueCard.className = `clue-card glass ${isSpent ? 'spent' : ''}`;
@@ -506,7 +506,7 @@ onReady(() => {
         const clue = cat.clues[rowIndex];
         const card = cards[index++];
         if (clue && card) {
-          const spentKey = `${gameState.gamePhase}-${cat.name}-${clue.value}`;
+          const spentKey = clue.id;
           if (gameState.spentClues.includes(spentKey)) {
             card.classList.add('spent');
           } else {
