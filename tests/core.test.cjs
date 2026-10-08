@@ -6,7 +6,7 @@ function engine() {
   const storage = new Map();
   const ctx = vm.createContext({ console, Date, setTimeout, clearTimeout, BroadcastChannel: class { postMessage() {} },
     localStorage: { getItem: k => storage.get(k), setItem: (k, v) => storage.set(k, v) } });
-  for (const file of ['deck', 'app']) vm.runInContext(fs.readFileSync(`src/js/${file}.js`, 'utf8'), ctx);
+  for (const file of ['deck', 'app', 'session-tools']) vm.runInContext(fs.readFileSync(`src/js/${file}.js`, 'utf8'), ctx);
   return ctx;
 }
 const header = 'Round,Category,Value,Question,Answer,IsDailyDouble,MediaType,MediaURL\n';
@@ -95,4 +95,22 @@ test('autosave writes immutable deck once and recovers compact session state', (
   assert.ok(saved.deckId);
   assert.equal(e.loadStateFromStorage(), true);
   assert.equal(vm.runInContext('gameState.deck.singleJeopardy.categories[0].clues[0].value', e), 200);
+});
+test('undo/redo and portable backup preserve scoring, spent IDs and history', () => {
+  const e = engine();
+  vm.runInContext(`gameState.deck = processCSVDeck(${JSON.stringify(header + row)}); gameState.teams = [{id:1,name:'A',color:'#112233',score:0},{id:2,name:'B',color:'#aabbcc',score:0}]; beginRound('single_jeopardy'); gameState.categoryIntroIndex = null; openGameClue(gameState.deck.singleJeopardy.categories[0].clues[0]);`, e);
+  e.gradeClue(1, 'correct');
+  assert.equal(e.undoGameChange(), true);
+  assert.equal(vm.runInContext('gameState.teams[0].score', e), 0);
+  assert.equal(vm.runInContext('gameState.currentClue.question', e), 'Question?');
+  assert.equal(e.redoGameChange(), true);
+  const restored = e.parseSessionBackup(e.exportSessionBackup());
+  assert.equal(restored.teams[0].score, 200);
+  assert.equal(restored.spentClues.length, 1);
+  assert.equal(restored.undoStack.length, 1);
+  assert.equal(restored.scoreEvents.length, 3);
+  const broken = JSON.parse(e.exportSessionBackup());
+  broken.state.spentClues = ['unknown'];
+  assert.throws(() => e.parseSessionBackup(JSON.stringify(broken)));
+  assert.equal(vm.runInContext('gameState.teams[0].score', e), 200);
 });

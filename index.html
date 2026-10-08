@@ -59,6 +59,8 @@
         <details id="import-report" hidden><summary>Deck preview and diagnostics</summary><pre id="import-details"></pre></details>
       </div>
 
+      <button id="restore-session-setup" class="btn">Restore saved session</button>
+      <p id="setup-session-status" role="status"></p>
       <!-- Dynamic Teams selection -->
       <div class="form-group">
         <label for="teams-count">Number of Teams</label>
@@ -139,6 +141,14 @@
           </details>
         </div>
 
+        <div class="session-tools">
+          <div class="host-button-row"><button id="undo-score" class="btn" disabled>Undo</button><button id="redo-score" class="btn" disabled>Redo</button></div>
+          <p id="history-status" role="status"></p>
+          <button id="export-session" class="btn">Download session backup</button>
+          <button id="restore-session" class="btn">Restore session backup</button>
+          <input id="session-upload" type="file" accept=".json" hidden>
+          <p id="session-status" role="status"></p>
+        </div>
         <div style="margin-top: auto;">
           <button class="btn" id="reset-game-btn" style="width: 100%; justify-content: center; background: hsla(350, 89%, 60%, 0.1); border-color: hsla(350, 89%, 60%, 0.2); color: hsl(350, 89%, 75%);">
             Reset Game Session
@@ -305,6 +315,7 @@
   <!-- State & Audio Script Links -->
   <script src="src/js/deck.js"></script>
   <script src="src/js/app.js"></script>
+  <script src="src/js/session-tools.js"></script>
   <script src="src/js/audio.js"></script>
   <script src="src/js/board-ui.js"></script>
   <script src="src/js/host-ui.js"></script>

@@ -127,6 +127,12 @@ onReady(() => {
     }
     
     const settings = gameState.settings;
+    for (const [id, key] of [['response-seconds', 'responseSeconds'], ['final-seconds', 'finalSeconds']]) {
+      const input = document.getElementById(id); if (input) input.value = settings[key];
+    }
+    const effects = document.getElementById('low-effects');
+    if (effects) effects.checked = settings.lowEffects;
+    document.documentElement.classList.toggle('effects-simple', Boolean(settings.lowEffects));
     
     if (soundBtn) {
       soundBtn.textContent = settings.soundEnabled ? '🔊 On' : '🔇 Off';
@@ -421,6 +427,7 @@ onReady(() => {
   }
 
   function renderSidebarScoreboards() {
+    renderHistoryControls();
     hostTeamList.innerHTML = '';
     
     gameState.teams.forEach(team => {
@@ -448,7 +455,7 @@ onReady(() => {
         const text = e.target.value.trim();
         const val = /^-?\d+$/.test(text) ? Number(text) : NaN;
         if (Number.isSafeInteger(val)) {
-          team.score = val;
+          recordGameChange(`Set ${team.name}'s score`, () => { team.score = val; return true; });
           saveStateToStorage();
           broadcastState();
           renderSidebarScoreboards();
@@ -463,7 +470,7 @@ onReady(() => {
     const team = gameState.teams.find(t => t.id === teamId);
     if (team) {
       if (!Number.isSafeInteger(team.score + delta)) return;
-      team.score += delta;
+      recordGameChange(`Adjust ${team.name}'s score`, () => { team.score += delta; return true; });
       saveStateToStorage();
       broadcastState();
       renderSidebarScoreboards();
@@ -1173,6 +1180,44 @@ onReady(() => {
       saveStateToStorage();
       broadcastAction('REVEAL_ANSWER', { answer: gameState.currentClue.answer });
     }
+  });
+
+  function renderHistoryControls() {
+    const undo = document.getElementById('undo-score'), redo = document.getElementById('redo-score');
+    if (undo) undo.disabled = !gameState.undoStack.length;
+    if (redo) redo.disabled = !gameState.redoStack.length;
+    const status = document.getElementById('history-status');
+    if (status) status.textContent = gameState.undoStack.at(-1)?.label || 'No scoring changes yet';
+  }
+  function restoreHistory(redo) {
+    if (!(redo ? redoGameChange() : undoGameChange())) return;
+    saveStateToStorage(); broadcastAction('RESTORE_GAME'); renderActiveGameUI();
+  }
+  document.getElementById('undo-score')?.addEventListener('click', () => restoreHistory(false));
+  document.getElementById('redo-score')?.addEventListener('click', () => restoreHistory(true));
+  document.getElementById('export-session')?.addEventListener('click', () => {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([exportSessionBackup()], { type: 'application/json' }));
+    link.download = 'jeopardy-session.json'; link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  });
+  const sessionInput = document.getElementById('session-upload');
+  ['restore-session', 'restore-session-setup'].forEach(id => document.getElementById(id)?.addEventListener('click', () => sessionInput.click()));
+  sessionInput?.addEventListener('change', async () => {
+    const file = sessionInput.files[0];
+    const setStatus = text => ['session-status', 'setup-session-status'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = text; });
+    if (!file) return;
+    try {
+      if (file.size > 5 * 1024 * 1024) throw new Error('Backup exceeds 5 MB.');
+      const restored = parseSessionBackup(await file.text());
+      if (restored.timer) { restored.timer.remaining = timerRemaining(restored.timer); restored.timer.paused = true; }
+      Object.assign(gameState, restored);
+      saveStateToStorage(); broadcastState(true);
+      if (gameState.gamePhase === 'setup') { activeGameContainer.style.display = 'none'; setupContainer.style.display = 'block'; renderTeamSetupInputs(); startGameBtn.disabled = false; }
+      else { launchActiveDashboard(); initSettingsUI(); }
+      setStatus('Session restored. Any active timer is paused.');
+    } catch (error) { setStatus(error.message); }
+    sessionInput.value = '';
   });
 
   // --- SIDEBAR UTILITIES ---

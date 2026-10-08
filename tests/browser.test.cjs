@@ -183,3 +183,22 @@ test('multiline long clues retain formatting and scroll from a visible start', (
     if (process.env.QA_SCREENSHOT) await board.screenshot({ path: process.env.QA_SCREENSHOT });
   }
 ));
+test('undo, redo and validated backup restore synchronize with the board', () => withGame(sample, {}, async game => {
+  const { host } = game, board = await openBoard(game);
+  await host.locator('.host-clue-card').first().click();
+  await host.locator('#quick-score-teams-row .btn-correct').first().click();
+  await host.locator('#undo-score').click();
+  await board.waitForFunction(() => gameState.currentClue?.question === 'Q1' && gameState.teams[0].score === 0);
+  await host.locator('#redo-score').click();
+  await board.waitForFunction(() => !gameState.currentClue && gameState.teams[0].score === 200);
+  const backup = await host.evaluate(() => exportSessionBackup());
+  const downloading = host.waitForEvent('download'); await host.locator('#export-session').click();
+  assert.equal((await downloading).suggestedFilename(), 'jeopardy-session.json');
+  await host.locator('.score-display-input').first().fill('999'); await host.locator('.score-display-input').first().press('Tab');
+  await host.locator('#session-upload').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(backup) });
+  await host.waitForFunction(() => gameState.teams[0].score === 200);
+  await board.waitForFunction(() => gameState.teams[0].score === 200);
+  await host.locator('#session-upload').setInputFiles({ name: 'bad.json', mimeType: 'application/json', buffer: Buffer.from('{"format":"wrong"}') });
+  await host.waitForFunction(() => document.getElementById('session-status').textContent.includes('Unsupported'));
+  assert.equal((await state(host)).teams[0].score, 200);
+}));

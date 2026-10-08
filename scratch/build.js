@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const root = path.resolve(__dirname, '..');
-const scripts = ['deck', 'app', 'audio', 'board-ui', 'host-ui'];
+const scripts = ['deck', 'app', 'session-tools', 'audio', 'board-ui', 'host-ui'];
 
 function inlineSource(html, directory = root) {
   html = html.replace('<link rel="stylesheet" href="src/css/style.css">', () =>

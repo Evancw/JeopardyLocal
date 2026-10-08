@@ -20,6 +20,9 @@ const gameState = {
   sessionId: globalThis.crypto?.randomUUID?.() || `session-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   revision: 0,
   timer: null,
+  undoStack: [],
+  redoStack: [],
+  scoreEvents: [],
   teams: [], // Dynamic array of 2 to 4 teams
   deck: {
     singleJeopardy: { categories: [] },
@@ -68,7 +71,7 @@ function saveStateToStorage() {
       localStorage.setItem(`jeopardy_deck:${gameState.deck.id}`, JSON.stringify(gameState.deck));
       savedDeckId = gameState.deck.id;
     }
-    const snapshot = { ...stateSnapshot(), deckId: gameState.deck.id };
+    const snapshot = { ...stateSnapshot(false, true), deckId: gameState.deck.id };
     const state = JSON.stringify(snapshot);
     localStorage.setItem(STORAGE_KEY, state);
     localStorage.setItem(`${STORAGE_KEY}:${gameState.sessionId}`, state);
@@ -138,6 +141,7 @@ function resetGameState() {
   gameState.spentClues = [];
   gameState.categoryIntroIndex = null;
   gameState.gamePhase = 'setup';
+  gameState.undoStack = []; gameState.redoStack = []; gameState.scoreEvents = [];
   saveStateToStorage();
 }
 
@@ -207,7 +211,7 @@ function setDailyDoubleWager(teamId, wager) {
   return true;
 }
 
-function gradeClue(teamId, result) {
+function applyClueGrade(teamId, result) {
   const clue = gameState.currentClue;
   if (!clue || gameState.gamePhase === 'final_jeopardy' || !['correct', 'incorrect', 'skip'].includes(result)) return null;
   if (result !== 'skip') {
@@ -230,7 +234,7 @@ function gradeClue(teamId, result) {
   return { isCorrect: result === 'correct', isIncorrect: result === 'incorrect', keepOpen };
 }
 
-function gradeFinal(teamId, result) {
+function applyFinalGrade(teamId, result) {
   if (gameState.gamePhase !== 'final_jeopardy' || !['correct', 'incorrect'].includes(result) || gameState.finalStage !== 'judging') return false;
   const participant = gameState.finalParticipants.find(p => p.teamId === teamId);
   const team = gameState.teams.find(t => t.id === teamId);
@@ -242,6 +246,13 @@ function gradeFinal(teamId, result) {
   team.finalResult = result;
   gameState.timer = null;
   return true;
+}
+
+function gradeClue(teamId, result) {
+  return recordGameChange(`${result === 'skip' ? 'Skip' : result} · ${gameState.currentClue?.category || 'clue'}`, () => applyClueGrade(teamId, result));
+}
+function gradeFinal(teamId, result) {
+  return recordGameChange(`${result} · Final · Team ${teamId}`, () => applyFinalGrade(teamId, result));
 }
 
 function timerRemaining(timer = gameState.timer, now = Date.now()) {
@@ -262,9 +273,10 @@ function toggleGameTimer(now = Date.now()) {
   return true;
 }
 
-function stateSnapshot(includeDeck = false) {
+function stateSnapshot(includeDeck = false, includeHistory = false) {
   const state = { ...gameState };
   if (!includeDeck) delete state.deck;
+  if (!includeHistory) { delete state.undoStack; delete state.redoStack; delete state.scoreEvents; }
   return state;
 }
 

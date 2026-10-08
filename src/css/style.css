@@ -756,3 +756,5 @@ h1, h2, h3, h4 {
 
 .effects-simple .glass, .effects-simple .clue-overlay { backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
 .effects-simple *, .effects-simple *::before, .effects-simple *::after { animation: none !important; transition: none !important; }
+
+.session-tools { display: grid; gap: 8px; font-size: 13px; }
