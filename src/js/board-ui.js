@@ -42,12 +42,14 @@ onReady(() => {
   let hasPlayedVictoryFanfare = false;
   let hasRenderedWinnerReveal = false;
   const preloadedImageUrls = new Set();
+  let preloadKey = '', imageQueue = [], activeImageLoads = 0;
 
   loadStateFromStorage();
   let requestedSession = new URLSearchParams(window.location.search).get('session') || null;
   let lastRevision = -1, lastContact = 0, lastClueView = '', lastTimer = '', lastBuzz = null;
   const connection = document.getElementById('connection-status');
   applySyncSettings();
+  preloadDeckImages();
   renderCompleteBoard();
   renderCategoryIntroductions();
   renderCurrentClue();
@@ -93,21 +95,25 @@ onReady(() => {
     if (requestedSession && message.sessionId !== requestedSession) return;
     if (!Number.isFinite(message.revision) || message.revision <= lastRevision) return;
     if (!message.state.deck && message.deckId !== gameState.deck.id) { sendSyncRequest(); return; }
+    const previousTeams = JSON.stringify(gameState.teams), previousSpent = JSON.stringify(gameState.spentClues), previousSettings = JSON.stringify(gameState.settings);
     const prevPhase = gameState.gamePhase, prevIntro = gameState.categoryIntroIndex, prevDeck = gameState.deck.id;
     requestedSession = message.sessionId;
     lastRevision = message.revision;
     lastContact = Date.now();
     if (connection) connection.textContent = 'Connected';
     Object.assign(gameState, message.state);
-    applySyncSettings();
-    if (prevDeck !== gameState.deck.id) preloadDeckImages();
+    const teamsChanged = previousTeams !== JSON.stringify(gameState.teams);
+    const spentChanged = previousSpent !== JSON.stringify(gameState.spentClues);
+    if (previousSettings !== JSON.stringify(gameState.settings)) applySyncSettings();
+    if (prevDeck !== gameState.deck.id || prevPhase !== gameState.gamePhase || spentChanged) preloadDeckImages();
     if (gameState.gamePhase === 'setup') { hasPlayedVictoryFanfare = false; hasRenderedWinnerReveal = false; }
-    if (prevPhase !== gameState.gamePhase || prevDeck !== gameState.deck.id || !gridEl.hasChildNodes() || gameState.gamePhase === 'completed') renderCompleteBoard();
-    else { renderRoundTitle(); renderScoreboard(); updateClueCardStates(); }
+    if (prevPhase !== gameState.gamePhase || prevDeck !== gameState.deck.id || !gridEl.hasChildNodes() || (gameState.gamePhase === 'completed' && teamsChanged)) renderCompleteBoard();
+    else { if (teamsChanged) renderScoreboard(); if (spentChanged) updateClueCardStates(); }
     if (prevIntro !== gameState.categoryIntroIndex || prevPhase !== gameState.gamePhase || prevDeck !== gameState.deck.id) renderCategoryIntroductions();
     renderCurrentClue();
     console.log(`Board received: ${message.action}`);
     switch (message.action) {
+      case 'SET_PHASE': if (gameState.gamePhase === 'completed') gameAudio.playVictoryFanfare(); break;
       case 'SHOW_CLUE': gameState.currentClue?.isDailyDouble ? gameAudio.playDailyDouble() : gameAudio.playSelect(); break;
       case 'SHOW_FINAL_CLUE': gameAudio.playFinalJeopardy(timerRemaining() / 1000); break;
       case 'PAUSE_TIMER': gameAudio.stopAll(); break;
@@ -166,12 +172,6 @@ onReady(() => {
   }
 
   function renderWinnerRevealBoard() {
-    // Play arpeggio sweep once
-    if (!hasPlayedVictoryFanfare) {
-      gameAudio.playVictoryFanfare();
-      hasPlayedVictoryFanfare = true;
-    }
-
     gridEl.innerHTML = '';
     // Single column for centered glassmorphic podium cards
     gridEl.style.gridTemplateColumns = '1fr';
@@ -474,7 +474,7 @@ onReady(() => {
         } else {
           img.style.opacity = '0';
           img.onload = () => { img.style.opacity = '1'; };
-          img.onerror = () => { img.style.opacity = '1'; };
+          img.onerror = () => { const error = document.createElement('p'); error.textContent = 'Image unavailable. Check the media file or connection.'; img.replaceWith(error); };
         }
         mediaContainerEl.appendChild(img);
       }
@@ -582,62 +582,38 @@ onReady(() => {
   }
 
   function preloadDeckImages() {
-    if (!gameState.deck) return;
-    
-    const imageUrls = [];
-    
-    // 1. Gather Single Jeopardy image URLs
-    if (gameState.deck.singleJeopardy && gameState.deck.singleJeopardy.categories) {
-      gameState.deck.singleJeopardy.categories.forEach(cat => {
-        if (cat.clues) {
-          cat.clues.forEach(clue => {
-            if (clue && clue.mediaType === 'image' && clue.mediaUrl) {
-              imageUrls.push(clue.mediaUrl);
-            }
-          });
-        }
-      });
+    const key = `${gameState.deck.id}:${gameState.gamePhase}:${gameState.spentClues.length}`;
+    if (key === preloadKey) return;
+    preloadKey = key;
+    const round = gameState.gamePhase === 'double_jeopardy' ? gameState.deck.doubleJeopardy :
+      gameState.gamePhase === 'single_jeopardy' ? gameState.deck.singleJeopardy : null;
+    const clues = round ? round.categories.flatMap(c => c.clues).filter(c => !gameState.spentClues.includes(c.id)) :
+      gameState.gamePhase === 'final_jeopardy' && gameState.deck.finalJeopardy ? [gameState.deck.finalJeopardy] : [];
+    const urls = clues.filter(c => c.mediaType === 'image' && c.mediaUrl).sort((a, b) => a.value - b.value).map(c => c.mediaUrl);
+    imageQueue = [...new Set(urls)].filter(url => !preloadedImageUrls.has(url)).slice(0, 6);
+    drainImageQueue();
+  }
+
+  function drainImageQueue() {
+    while (activeImageLoads < 2 && imageQueue.length) {
+      const url = imageQueue.shift();
+      if (preloadedImageUrls.has(url)) continue;
+      preloadedImageUrls.add(url);
+      activeImageLoads++;
+      const img = new Image();
+      img.decoding = 'async';
+      const finish = () => { activeImageLoads--; drainImageQueue(); };
+      img.onload = () => { if (img.decode) img.decode().catch(() => {}).finally(finish); else finish(); };
+      img.onerror = () => { preloadedImageUrls.delete(url); finish(); };
+      img.src = url;
     }
-    
-    // 2. Gather Double Jeopardy image URLs
-    if (gameState.deck.doubleJeopardy && gameState.deck.doubleJeopardy.categories) {
-      gameState.deck.doubleJeopardy.categories.forEach(cat => {
-        if (cat.clues) {
-          cat.clues.forEach(clue => {
-            if (clue && clue.mediaType === 'image' && clue.mediaUrl) {
-              imageUrls.push(clue.mediaUrl);
-            }
-          });
-        }
-      });
-    }
-    
-    // 3. Gather Final Jeopardy image URL
-    if (gameState.deck.finalJeopardy && 
-        gameState.deck.finalJeopardy.mediaType === 'image' && 
-        gameState.deck.finalJeopardy.mediaUrl) {
-      imageUrls.push(gameState.deck.finalJeopardy.mediaUrl);
-    }
-    
-    // 4. Preload each new unique image URL in the background
-    imageUrls.forEach(url => {
-      if (!preloadedImageUrls.has(url)) {
-        preloadedImageUrls.add(url);
-        console.log(`📡 Background preloading clue image: ${url}`);
-        const img = new Image();
-        img.decoding = 'async';
-        img.src = url;
-        if (img.decode) {
-          img.decode().catch(() => {});
-        }
-      }
-    });
   }
 
   function applySyncSettings() {
     if (!gameState.settings) return;
     
     // 1. Inject CSS custom property for clue sizing
+    document.documentElement.classList.toggle('effects-simple', Boolean(gameState.settings.lowEffects));
     const scale = gameState.settings.clueFontSizeMultiplier || 1.0;
     document.documentElement.style.setProperty('--clue-font-size-multiplier', scale);
     

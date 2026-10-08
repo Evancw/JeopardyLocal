@@ -41,6 +41,7 @@ const gameState = {
   categoryIntroIndex: null, // null | number (0-4) during active round category reveals
   settings: {
     clueFontSizeMultiplier: 1.0,
+    lowEffects: false,
     responseSeconds: 5,
     finalSeconds: 30,
     soundEnabled: true
@@ -55,17 +56,36 @@ function isHostView() {
   return new URLSearchParams(window.location.search).get('view') !== 'board' && !window.location.pathname.endsWith('board.html');
 }
 
+let savedDeckId = null, settingsSaveTimer = null;
 function saveStateToStorage() {
   if (!isHostView()) return;
+  clearTimeout(settingsSaveTimer);
   gameState.revision = Math.max(Date.now(), gameState.revision + 1);
+  const status = typeof document === 'undefined' ? null : document.getElementById('storage-status');
   try {
-    const state = JSON.stringify(gameState);
+    ensureDeckIds(gameState.deck);
+    if (savedDeckId !== gameState.deck.id) {
+      localStorage.setItem(`jeopardy_deck:${gameState.deck.id}`, JSON.stringify(gameState.deck));
+      savedDeckId = gameState.deck.id;
+    }
+    const snapshot = { ...stateSnapshot(), deckId: gameState.deck.id };
+    const state = JSON.stringify(snapshot);
     localStorage.setItem(STORAGE_KEY, state);
     localStorage.setItem(`${STORAGE_KEY}:${gameState.sessionId}`, state);
-  } catch (e) {
-    console.warn("localStorage save failed (blocked or disabled):", e);
+    if (status) status.textContent = 'Session saved in this browser';
+    return true;
+  } catch (error) {
+    if (status) status.textContent = 'Autosave unavailable. Download a session backup.';
+    console.warn('Session autosave unavailable:', error);
+    return false;
   }
 }
+
+function scheduleSettingsSave() {
+  clearTimeout(settingsSaveTimer);
+  settingsSaveTimer = setTimeout(saveStateToStorage, 300);
+}
+if (typeof window !== 'undefined' && isHostView()) window.addEventListener('pagehide', saveStateToStorage);
 
 function loadStateFromStorage() {
   try {
@@ -73,6 +93,7 @@ function loadStateFromStorage() {
     const stored = localStorage.getItem(session ? `${STORAGE_KEY}:${session}` : STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
+      if (!parsed.deck && parsed.deckId) parsed.deck = JSON.parse(localStorage.getItem(`jeopardy_deck:${parsed.deckId}`) || 'null');
       if (!parsed.deck?.singleJeopardy?.categories || !parsed.deck?.doubleJeopardy?.categories || !Array.isArray(parsed.teams)) return false;
       const defaultSettings = gameState.settings;
       Object.assign(gameState, parsed);

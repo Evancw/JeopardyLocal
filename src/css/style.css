@@ -72,9 +72,7 @@ body {
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-glass);
-  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-  will-change: transform, opacity;
-  transform: translate3d(0, 0, 0);
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .glass:hover {
@@ -90,7 +88,7 @@ body {
   border: 1px solid var(--border-glass);
   box-shadow: var(--shadow-glass);
   border-radius: var(--card-radius, var(--radius-md));
-  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .host-clue-card,
@@ -118,7 +116,7 @@ h1, h2, h3, h4 {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
@@ -251,7 +249,7 @@ h1, h2, h3, h4 {
   background: var(--bg-card);
   cursor: pointer;
   user-select: none;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .clue-card:not(.spent):hover {
@@ -283,8 +281,6 @@ h1, h2, h3, h4 {
   pointer-events: none;
   transition: opacity 0.4s ease;
   padding: 40px;
-  will-change: transform, opacity;
-  transform: translate3d(0, 0, 0);
 }
 
 .clue-overlay.active {
@@ -593,7 +589,7 @@ h1, h2, h3, h4 {
   flex-direction: column;
   justify-content: space-between;
   min-height: 100px;
-  transition: all 0.2s;
+  transition: transform 0.2s;
   min-width: 0;
 }
 
@@ -757,3 +753,6 @@ h1, h2, h3, h4 {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+.effects-simple .glass, .effects-simple .clue-overlay { backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
+.effects-simple *, .effects-simple *::before, .effects-simple *::after { animation: none !important; transition: none !important; }

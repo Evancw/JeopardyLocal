@@ -183,7 +183,7 @@ onReady(() => {
       const updateTeam = () => {
         team.name = nameInput.value.trim() || `Team ${index + 1}`;
         team.color = colorInput.value;
-        saveStateToStorage();
+        scheduleSettingsSave();
         broadcastState();
         renderSidebarScoreboards();
       };
@@ -243,11 +243,21 @@ onReady(() => {
         fontScaleDisplay.textContent = Math.round(val * 100) + '%';
       }
       
-      saveStateToStorage();
+      scheduleSettingsSave();
       broadcastState();
     });
   }
 
+  const lowEffects = document.getElementById('low-effects');
+  if (lowEffects) {
+    lowEffects.checked = gameState.settings.lowEffects;
+    lowEffects.addEventListener('change', () => {
+      gameState.settings.lowEffects = lowEffects.checked;
+      document.documentElement.classList.toggle('effects-simple', lowEffects.checked);
+      scheduleSettingsSave(); broadcastState();
+    });
+    document.documentElement.classList.toggle('effects-simple', lowEffects.checked);
+  }
   ['responseSeconds', 'finalSeconds'].forEach(setting => {
     const input = document.getElementById(setting === 'responseSeconds' ? 'response-seconds' : 'final-seconds');
     if (!input) return;

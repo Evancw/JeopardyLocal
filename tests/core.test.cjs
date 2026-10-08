@@ -83,3 +83,16 @@ test('shared timer pauses and resumes without extending elapsed time', () => {
   assert.equal(e.timerRemaining(undefined, 9000), 28500);
   assert.equal(e.timerRemaining(undefined, 100000), 0);
 });
+test('autosave writes immutable deck once and recovers compact session state', () => {
+  const e = engine();
+  const writes = [], original = e.localStorage.setItem;
+  e.localStorage.setItem = (key, value) => { writes.push(key); original(key, value); };
+  vm.runInContext(`gameState.deck = processCSVDeck(${JSON.stringify(header + row)});`, e);
+  e.saveStateToStorage(); e.saveStateToStorage();
+  assert.equal(writes.filter(key => key.startsWith('jeopardy_deck:')).length, 1);
+  const saved = JSON.parse(e.localStorage.getItem('jeopardy_local_state'));
+  assert.equal(saved.deck, undefined);
+  assert.ok(saved.deckId);
+  assert.equal(e.loadStateFromStorage(), true);
+  assert.equal(vm.runInContext('gameState.deck.singleJeopardy.categories[0].clues[0].value', e), 200);
+});

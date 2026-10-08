@@ -91,6 +91,7 @@
           Open Board Window
         </button>
 
+        <p id="storage-status" role="status"></p>
         <p id="host-connection-status" role="status">Board not connected</p>
         <h3 style="font-size: 14px; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 8px;">Scoreboards</h3>
 
@@ -122,6 +123,7 @@
             <input type="range" id="host-font-scale-slider" min="0.6" max="1.8" step="0.1" value="1.0" style="width: 100%; cursor: pointer;">
           </div>
 
+          <label><input id="low-effects" type="checkbox"> Lower visual effects</label>
           <div class="timer-settings">
             <label for="response-seconds">Response seconds</label><input id="response-seconds" type="number" min="1" max="120" value="5">
             <label for="final-seconds">Final seconds</label><input id="final-seconds" type="number" min="1" max="120" value="30">
