@@ -59,6 +59,8 @@
         <details id="import-report" hidden><summary>Deck preview and diagnostics</summary><pre id="import-details"></pre></details>
       </div>
 
+      <button id="edit-deck-setup" class="btn" disabled>Edit loaded deck</button>
+      <button id="csv-template" class="btn">Download CSV template</button>
       <button id="restore-session-setup" class="btn">Restore saved session</button>
       <p id="setup-session-status" role="status"></p>
       <!-- Dynamic Teams selection -->
@@ -141,6 +143,7 @@
           </details>
         </div>
 
+        <button id="edit-deck" class="btn" disabled>Edit loaded deck</button>
         <div class="session-tools">
           <div class="host-button-row"><button id="undo-score" class="btn" disabled>Undo</button><button id="redo-score" class="btn" disabled>Redo</button></div>
           <p id="history-status" role="status"></p>
@@ -177,6 +180,7 @@
         <!-- Active Clue Host Control console -->
         <section id="host-clue-controller" class="host-control-drawer" style="display: none;">
 
+          <p class="keyboard-help">Keyboard: 1–4 select a team · C correct · I incorrect · R reveal · S skip · P pause</p>
           <div class="host-question-display">
             <h4 id="controller-category" style="font-size: 14px; text-transform: uppercase; color: var(--color-accent); margin-bottom: 4px;">Category</h4>
             <p id="controller-question" style="font-size: 18px; font-weight: 500;">Active clue prompt displayed here...</p>
@@ -231,6 +235,28 @@
       </main>
     </div>
   </div>
+
+  <dialog id="deck-editor" aria-labelledby="editor-title">
+    <h2 id="editor-title">Edit loaded deck</h2>
+    <p>Finish active clues before editing. Saving preserves scores and spent clues, and starts new undo history.</p>
+    <label for="editor-clue">Clue</label><select id="editor-clue"></select>
+    <div class="editor-fields">
+      <label>Category title<input id="editor-category" type="text" dir="auto"></label>
+      <label>Value<input id="editor-value" type="text" inputmode="numeric"></label>
+      <label class="editor-wide">Question<textarea id="editor-question" rows="4" dir="auto"></textarea></label>
+      <label class="editor-wide">Answer<textarea id="editor-answer" rows="2" dir="auto"></textarea></label>
+      <label><input id="editor-isDailyDouble" type="checkbox"> Daily Double</label>
+      <label>Media type<select id="editor-mediaType"><option value="none">None</option><option value="image">Image</option></select></label>
+      <label class="editor-wide">Image URL or path (relative to this app)<input id="editor-mediaUrl" type="text"></label>
+    </div>
+    <pre id="editor-preview" dir="auto"></pre>
+    <p id="editor-status" role="status"></p>
+    <div class="host-button-row">
+      <button id="category-earlier" class="btn">Category earlier</button><button id="category-later" class="btn">Category later</button>
+      <button id="editor-save" class="btn btn-correct">Save clue changes</button>
+      <button id="editor-export" class="btn">Download revised CSV</button><button id="editor-close" class="btn">Close</button>
+    </div>
+  </dialog>
 
   <!-- ==================== SPECTATOR BOARD SCREEN ==================== -->
   <div id="board-app-root" style="display: none;">
@@ -318,6 +344,7 @@
   <script src="src/js/session-tools.js"></script>
   <script src="src/js/audio.js"></script>
   <script src="src/js/board-ui.js"></script>
+  <script src="src/js/deck-editor.js"></script>
   <script src="src/js/host-ui.js"></script>
 </body>
 </html>

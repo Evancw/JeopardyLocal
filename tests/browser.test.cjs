@@ -202,3 +202,22 @@ test('undo, redo and validated backup restore synchronize with the board', () =>
   await host.waitForFunction(() => document.getElementById('session-status').textContent.includes('Unsupported'));
   assert.equal((await state(host)).teams[0].score, 200);
 }));
+test('deck editor validates and exports changes; keyboard hosting works', () => withGame(sample, {}, async game => {
+  const { host } = game, board = await openBoard(game);
+  await host.locator('#edit-deck').click();
+  await host.locator('#editor-value').fill('bad'); await host.locator('#editor-save').click();
+  assert.equal((await state(host)).deck.singleJeopardy.categories[0].clues[0].value, 200);
+  await host.locator('#editor-value').fill('300');
+  await host.locator('#editor-question').fill('Revised <b>text</b>\nSecond line');
+  await host.locator('#editor-save').click();
+  await board.waitForFunction(() => gameState.deck.singleJeopardy.categories[0].clues[0].value === 300);
+  const downloading = host.waitForEvent('download'); await host.locator('#editor-export').click();
+  assert.equal((await downloading).suggestedFilename(), 'jeopardy-deck.csv');
+  await host.locator('#editor-close').click();
+  await host.locator('.host-clue-card').first().focus(); await host.keyboard.press('Enter');
+  assert.equal(await host.locator('#edit-deck').isDisabled(), true);
+  await host.keyboard.press('1'); await host.keyboard.press('c');
+  await board.waitForFunction(() => gameState.teams[0].score === 300 && !gameState.currentClue);
+  assert.equal(await host.locator('#edit-deck').isDisabled(), false);
+  if (process.env.QA_HOST_SCREENSHOT) await host.screenshot({ path: process.env.QA_HOST_SCREENSHOT });
+}));

@@ -337,6 +337,7 @@ onReady(() => {
         if (details) details.textContent = lines.join('\n');
         if (report) { report.hidden = false; report.open = deck.importSummary.warnings.length > 0; }
         startGameBtn.disabled = false;
+        refreshEditorButtons();
       } catch (error) { fail(error.message); }
     };
     reader.readAsText(file, document.getElementById('csv-encoding')?.value || 'utf-8');
@@ -478,6 +479,7 @@ onReady(() => {
   }
 
   function renderRoundTransitions() {
+    refreshEditorButtons();
     const titles = {
       'single_jeopardy': 'Single Jeopardy',
       'double_jeopardy': 'Double Jeopardy',
@@ -890,6 +892,10 @@ onReady(() => {
           
           card.className = `host-clue-card ${isSpent ? 'spent' : ''} ${clue.isDailyDouble ? 'daily-double' : ''}`;
           
+          card.tabIndex = isSpent ? -1 : 0;
+          card.setAttribute('role', 'button');
+          card.setAttribute('aria-label', `${cat.name}, $${clue.value}`);
+          card.setAttribute('aria-disabled', String(isSpent));
           card.dataset.catName = cat.name;
           card.dataset.rowIndex = rowIndex;
           
@@ -919,6 +925,8 @@ onReady(() => {
     broadcastAction('SHOW_CLUE', { clue });
     renderRoundTransitions();
     renderClueController();
+    hostClueController.tabIndex = -1;
+    hostClueController.focus({ preventScroll: true });
     hostClueController.scrollIntoView({ behavior: 'smooth' });
   }
 
@@ -1120,6 +1128,7 @@ onReady(() => {
     } else {
       hostClueController.style.display = 'none';
       renderActiveGameUI();
+      hostClueGrid.querySelector('.host-clue-card:not(.spent)')?.focus();
     }
   }
 
@@ -1246,6 +1255,27 @@ onReady(() => {
       }
     });
   }
+
+  initDeckEditor(() => {
+    saveStateToStorage(); broadcastState(true);
+    if (gameState.gamePhase !== 'setup') renderActiveGameUI();
+    else { uploadStatus.textContent = `Edited deck: ${gameState.deckName || 'game board'}`; startGameBtn.disabled = false; }
+  });
+  hostClueGrid.addEventListener('keydown', event => {
+    if (['Enter', ' '].includes(event.key) && event.target.classList.contains('host-clue-card')) { event.preventDefault(); event.target.click(); }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.target.closest('input, textarea, select, [contenteditable="true"]') || document.getElementById('deck-editor').open) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); restoreHistory(event.shiftKey); return; }
+    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+    const key = event.key.toLowerCase();
+    if (/^[1-4]$/.test(key)) { const team = gameState.teams[Number(key) - 1]; if (team) assignActiveBuzzerTeam(team.id); }
+    else if (key === 'c') hostClueCorrectBtn.click();
+    else if (key === 'i') hostClueIncorrectBtn.click();
+    else if (key === 'r') hostRevealAnswerBtn.click();
+    else if (key === 's') hostClueSkipBtn.click();
+    else if (key === 'p') timerToggle?.click();
+  });
 
   // Centralized Event Delegation for clue card grid clicks
   hostClueGrid.addEventListener('click', (e) => {

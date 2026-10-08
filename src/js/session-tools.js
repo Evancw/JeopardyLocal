@@ -71,6 +71,10 @@ function validateBackupDeck(source) {
       !Number.isSafeInteger(clue.value) || typeof clue.isDailyDouble !== 'boolean') throw new Error('Invalid backup clue.');
   });
   const deck = processCSVDeck(deckToCSV(source));
+  for (const round of ['singleJeopardy', 'doubleJeopardy']) {
+    if (deck[round].categories.length !== source[round].categories.length) throw new Error('Backup categories must be unique.');
+    deck[round].categories.forEach((cat, index) => { if (typeof source[round].categories[index].id === 'string') cat.id = source[round].categories[index].id; });
+  }
   const converted = ['singleJeopardy', 'doubleJeopardy'].flatMap(round => deck[round].categories.flatMap(cat => cat.clues));
   if (deck.finalJeopardy) converted.push(deck.finalJeopardy);
   const ids = new Set();

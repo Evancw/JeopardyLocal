@@ -6,7 +6,7 @@ function engine() {
   const storage = new Map();
   const ctx = vm.createContext({ console, Date, setTimeout, clearTimeout, BroadcastChannel: class { postMessage() {} },
     localStorage: { getItem: k => storage.get(k), setItem: (k, v) => storage.set(k, v) } });
-  for (const file of ['deck', 'app', 'session-tools']) vm.runInContext(fs.readFileSync(`src/js/${file}.js`, 'utf8'), ctx);
+  for (const file of ['deck', 'app', 'session-tools', 'deck-editor']) vm.runInContext(fs.readFileSync(`src/js/${file}.js`, 'utf8'), ctx);
   return ctx;
 }
 const header = 'Round,Category,Value,Question,Answer,IsDailyDouble,MediaType,MediaURL\n';
@@ -113,4 +113,18 @@ test('undo/redo and portable backup preserve scoring, spent IDs and history', ()
   broken.state.spentClues = ['unknown'];
   assert.throws(() => e.parseSessionBackup(JSON.stringify(broken)));
   assert.equal(vm.runInContext('gameState.teams[0].score', e), 200);
+});
+test('deck edits preserve identities and spent state, validate changes, and export CSV', () => {
+  const e = engine();
+  vm.runInContext(`gameState.deck = processCSVDeck(${JSON.stringify(header + row + '\n' + row.replace('200','400').replace('Question?','Other?'))}); gameState.teams = [{id:1,name:'A',color:'#112233',score:0},{id:2,name:'B',color:'#aabbcc',score:0}]; beginRound('single_jeopardy'); gameState.categoryIntroIndex = null; openGameClue(gameState.deck.singleJeopardy.categories[0].clues[0]);`, e);
+  const id = vm.runInContext('gameState.currentClue.id', e);
+  assert.throws(() => e.editDeckClue(id, {}));
+  e.gradeClue(1, 'correct');
+  e.editDeckClue(id, { category: 'Café 🎬', value: '600', question: 'Literal <b>text</b>\nNext line', answer: 'A, B', isDailyDouble: false, mediaType: 'none', mediaUrl: '' });
+  assert.equal(vm.runInContext('gameState.teams[0].score', e), 200);
+  assert.equal(vm.runInContext('gameState.spentClues[0]', e), id);
+  assert.equal(vm.runInContext('gameState.undoStack.length', e), 0);
+  const imported = e.processCSVDeck(e.deckToCSV(vm.runInContext('gameState.deck', e)));
+  assert.equal(imported.singleJeopardy.categories[0].clues[1].question, 'Literal <b>text</b>\nNext line');
+  assert.equal(e.parseSessionBackup(e.exportSessionBackup()).spentClues[0], id);
 });

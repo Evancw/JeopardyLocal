@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const root = path.resolve(__dirname, '..');
-const scripts = ['deck', 'app', 'session-tools', 'audio', 'board-ui', 'host-ui'];
+const scripts = ['deck', 'app', 'session-tools', 'audio', 'board-ui', 'deck-editor', 'host-ui'];
 
 function inlineSource(html, directory = root) {
   html = html.replace('<link rel="stylesheet" href="src/css/style.css">', () =>
@@ -25,7 +25,7 @@ function splitViews(html) {
   const head = html.slice(0, hostStart), tail = html.slice(scriptsStart);
   return {
     host: head + html.slice(hostStart, boardStart) + tail.replace('  <script src="src/js/board-ui.js"></script>\n', ''),
-    board: head + html.slice(boardStart, scriptsStart) + tail.replace('  <script src="src/js/host-ui.js"></script>\n', '')
+    board: head + html.slice(boardStart, scriptsStart) + tail.replace('  <script src="src/js/host-ui.js"></script>\n', '').replace('  <script src="src/js/deck-editor.js"></script>\n', '')
   };
 }
 

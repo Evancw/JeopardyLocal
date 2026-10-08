@@ -758,3 +758,12 @@ h1, h2, h3, h4 {
 .effects-simple *, .effects-simple *::before, .effects-simple *::after { animation: none !important; transition: none !important; }
 
 .session-tools { display: grid; gap: 8px; font-size: 13px; }
+
+#deck-editor { width: min(900px, 95vw); max-height: 90vh; overflow-y: auto; margin: auto; padding: 24px; color: var(--color-text); background: var(--bg-dark); border: 1px solid var(--border-glass); border-radius: 12px; }
+#deck-editor::backdrop { background: rgba(0,0,0,.8); }
+#deck-editor > * { margin-bottom: 12px; }
+#deck-editor select, #deck-editor input:not([type="checkbox"]), #deck-editor textarea { width: 100%; padding: 8px; border: 1px solid var(--border-glass); border-radius: 6px; color: var(--color-text); background: var(--bg-card); font: inherit; }
+.editor-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.editor-wide { grid-column: 1 / -1; }
+#editor-preview { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid var(--border-glass); }
+.keyboard-help { font-size: 12px; color: var(--color-text-muted); }
