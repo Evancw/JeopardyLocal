@@ -187,60 +187,27 @@ const gameAudio = {
     sweep(0.3, 0.5, 'sine');
   },
 
-  playFinalJeopardy() {
-    if (!this.enabled) return;
+  playFinalJeopardy(seconds = 30) {
+    if (!this.enabled || seconds <= 0) return;
     this.init();
-    
     const now = this.ctx.currentTime;
-    let timeOffset = 0;
-    
-    // Play retro clock tick sequence
-    const tickMelody = [
-      440.00, 493.88, 523.25, 493.88, // A4, B4, C5, B4
-      440.00, 392.00, 349.23, 392.00, // A4, G4, F4, G4
-      440.00, 493.88, 523.25, 587.33, // A4, B4, C5, D5
-      659.25, 587.33, 523.25, 440.00  // E5, D5, C5, A4
-    ];
-    
-    // 30 seconds count ticking loops
-    for (let loop = 0; loop < 7; loop++) {
-      tickMelody.forEach((freq, index) => {
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        this.trackNode(osc, gain);
-        
-        osc.connect(gain);
-        gain.connect(this.ctx.destination);
-        
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, now + timeOffset);
-        
-        gain.gain.setValueAtTime(0.08, now + timeOffset);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + timeOffset + 0.22);
-        
-        osc.start(now + timeOffset);
-        osc.stop(now + timeOffset + 0.25);
-        
-        timeOffset += 0.25;
-      });
+    const melody = [440, 493.88, 523.25, 493.88, 440, 392, 349.23, 392,
+      440, 493.88, 523.25, 587.33, 659.25, 587.33, 523.25, 440];
+    const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+    this.trackNode(osc, gain);
+    osc.connect(gain); gain.connect(this.ctx.destination);
+    osc.type = 'sine';
+    for (let beat = 0; beat * 0.25 < seconds; beat++) {
+      const time = now + beat * 0.25;
+      osc.frequency.setValueAtTime(melody[beat % melody.length], time);
+      gain.gain.setValueAtTime(0.08, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, Math.min(time + 0.22, now + seconds));
     }
-    
-    // Add dramatic final chime at 30 seconds
-    const endOsc = this.ctx.createOscillator();
-    const endGain = this.ctx.createGain();
-    this.trackNode(endOsc, endGain);
-    endOsc.connect(endGain);
-    endGain.connect(this.ctx.destination);
-    
-    endOsc.type = 'triangle';
-    endOsc.frequency.setValueAtTime(220, now + timeOffset);
-    endOsc.frequency.exponentialRampToValueAtTime(880, now + timeOffset + 0.8);
-    
-    endGain.gain.setValueAtTime(0.2, now + timeOffset);
-    endGain.gain.exponentialRampToValueAtTime(0.01, now + timeOffset + 0.8);
-    
-    endOsc.start(now + timeOffset);
-    endOsc.stop(now + timeOffset + 0.8);
+    osc.frequency.setValueAtTime(220, now + seconds);
+    osc.frequency.exponentialRampToValueAtTime(880, now + seconds + 0.8);
+    gain.gain.setValueAtTime(0.2, now + seconds);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + seconds + 0.8);
+    osc.start(); osc.stop(now + seconds + 0.8);
   },
 
   playVictoryFanfare() {

@@ -248,6 +248,36 @@ onReady(() => {
     });
   }
 
+  ['responseSeconds', 'finalSeconds'].forEach(setting => {
+    const input = document.getElementById(setting === 'responseSeconds' ? 'response-seconds' : 'final-seconds');
+    if (!input) return;
+    input.value = gameState.settings[setting];
+    input.addEventListener('change', () => {
+      const seconds = parsePoints(input.value);
+      if (seconds === null || seconds > 120) {
+        input.value = gameState.settings[setting];
+        document.getElementById('host-timer-status').textContent = 'Choose 1–120 seconds.';
+        return;
+      }
+      gameState.settings[setting] = seconds;
+      saveStateToStorage(); broadcastState();
+    });
+  });
+  const timerToggle = document.getElementById('timer-toggle');
+  timerToggle?.addEventListener('click', () => {
+    if (!toggleGameTimer()) return;
+    saveStateToStorage();
+    broadcastAction(gameState.timer.paused ? 'PAUSE_TIMER' : 'RESUME_TIMER');
+  });
+  const timerDisplayInterval = setInterval(() => {
+    const timer = gameState.timer;
+    const remaining = timerRemaining();
+    const status = document.getElementById('host-timer-status');
+    if (timerToggle) { timerToggle.disabled = !timer || !remaining; timerToggle.textContent = timer?.paused ? 'Resume timer' : 'Pause timer'; }
+    if (status) status.textContent = timer ? `${timer.paused ? 'Paused · ' : ''}${Math.ceil(remaining / 1000)} seconds` : 'Timer ready';
+  }, 250);
+  window.addEventListener('pagehide', () => clearInterval(timerDisplayInterval), { once: true });
+
   // Initialize Settings UI values
   initSettingsUI();
 
@@ -675,7 +705,7 @@ onReady(() => {
           gameState.currentClue = gameState.deck.finalJeopardy;
           gameState.clueStage = 'answering';
           gameState.finalStage = 'judging';
-          gameState.timer = { kind: 'final', duration: 30000, deadline: Date.now() + 30000 };
+          startGameTimer('final');
           // Save wagers to state
           wagerData.forEach(data => {
             const team = gameState.teams.find(t => t.id === data.teamId);
@@ -1101,7 +1131,7 @@ onReady(() => {
     if (!gameState.currentClue || gameState.clueStage !== 'answering' || gameState.lockedOutTeamIds.includes(teamId)) return;
     if (gameState.currentClue.isDailyDouble && gameState.wageringTeamId !== teamId) return;
     gameState.activeBuzzedTeamId = teamId;
-    gameState.timer = { kind: 'response', duration: 5000, deadline: Date.now() + 5000 };
+    startGameTimer('response');
     saveStateToStorage();
     // Broadcast buzzer claim to spectator board (triggers beep + 5s timer)
     broadcastAction('SET_ACTIVE_TEAM', { teamId });

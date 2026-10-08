@@ -73,3 +73,13 @@ test('Final participants remain judgeable at zero and completion is guarded', ()
   assert.equal(vm.runInContext('gameState.teams[0].score', e), 200);
   assert.equal(e.beginRound('completed'), true);
 });
+test('shared timer pauses and resumes without extending elapsed time', () => {
+  const e = engine();
+  e.startGameTimer('final', 1000);
+  assert.equal(e.timerRemaining(undefined, 1500), 29500);
+  assert.equal(e.toggleGameTimer(1500), true);
+  assert.equal(e.timerRemaining(undefined, 8000), 29500);
+  assert.equal(e.toggleGameTimer(8000), true);
+  assert.equal(e.timerRemaining(undefined, 9000), 28500);
+  assert.equal(e.timerRemaining(undefined, 100000), 0);
+});

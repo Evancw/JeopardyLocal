@@ -141,3 +141,45 @@ test('offline bridge heals after host reload and round intros synchronize', () =
   await board.waitForFunction(() => gameState.categoryIntroIndex === 0 && gameState.gamePhase === 'double_jeopardy');
   assert.equal(await board.locator('#intro-category-name').textContent(), 'Double');
 }));
+test('Final timer is visible over the clue and stays paused across reload', () => withGame(sample, {}, async game => {
+  const { host } = game, board = await openBoard(game);
+  await host.locator('#final-seconds').fill('10');
+  await host.locator('#final-seconds').press('Tab');
+  await host.locator('.score-display-input').first().fill('100');
+  await host.locator('.score-display-input').first().press('Tab');
+  await host.locator('#btn-goto-double').click();
+  await host.locator('#host-skip-categories-btn').click();
+  await host.locator('#btn-goto-final').click();
+  await host.locator('.final-wager-input').fill('100');
+  await host.locator('#host-reveal-clue-btn').click();
+  await board.waitForFunction(() => gameState.timer?.kind === 'final');
+  assert.equal(await board.locator('#countdown-display').isVisible(), true);
+  assert.equal((await state(board)).timer.duration, 10000);
+  await host.locator('#timer-toggle').click();
+  await board.waitForFunction(() => gameState.timer?.paused);
+  const remaining = (await state(board)).timer.remaining;
+  await board.reload();
+  await board.waitForFunction(() => gameState.timer?.paused);
+  assert.equal((await state(board)).timer.remaining, remaining);
+  assert.equal(await board.locator('#timer-seconds').evaluate(el => {
+    const r = el.getBoundingClientRect(); return document.elementFromPoint(r.left + 2, r.top + 2) === el;
+  }), true);
+  await host.locator('#timer-toggle').click();
+  await board.waitForFunction(() => gameState.timer && !gameState.timer.paused);
+}));
+test('multiline long clues retain formatting and scroll from a visible start', () => withGame(
+  header + 'single,Text,200,"' + 'Long 日本語 🎬 line\n'.repeat(100) + '",A,FALSE,none,', {}, async game => {
+    const board = await openBoard(game);
+    await game.host.locator('.host-clue-card').click();
+    await board.waitForFunction(() => gameState.currentClue);
+    await board.waitForTimeout(600);
+    const layout = await board.locator('#clue-display-text').evaluate(el => ({
+      top: el.getBoundingClientRect().top, whiteSpace: getComputedStyle(el).whiteSpace,
+      scrollable: el.closest('.clue-overlay').scrollHeight > el.closest('.clue-overlay').clientHeight
+    }));
+    assert.ok(layout.top >= 0);
+    assert.equal(layout.whiteSpace, 'pre-wrap');
+    assert.equal(layout.scrollable, true);
+    if (process.env.QA_SCREENSHOT) await board.screenshot({ path: process.env.QA_SCREENSHOT });
+  }
+));

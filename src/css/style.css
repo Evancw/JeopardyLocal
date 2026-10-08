@@ -728,3 +728,32 @@ h1, h2, h3, h4 {
 .import-options label { flex: 1; min-width: 160px; font-size: 13px; }
 #import-report { margin: 12px 0; }
 #import-details { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; padding: 12px; font-size: 13px; }
+
+/* Structured clues stay readable and can scroll instead of clipping above the viewport. */
+.clue-overlay { justify-content: flex-start; overflow-y: auto; padding: 80px 24px 24px; }
+.clue-zoom-content { margin: auto 0; flex-shrink: 0; gap: clamp(12px, 2vh, 30px); }
+.clue-text { font-size: calc(clamp(22px, 4vw, 40px) * var(--clue-font-size-multiplier, 1)); }
+.clue-text, .clue-answer-text, #controller-question, .host-card-preview { white-space: pre-wrap; overflow-wrap: anywhere; }
+.category-title, .dd-title, .score-team-name { overflow-wrap: anywhere; }
+#countdown-display { position: fixed; top: 16px; right: 16px; z-index: 2000; padding: 12px; background: var(--bg-dark); border-radius: 8px; }
+.timer-bar-container { width: min(25vw, 240px); }
+.timer-bar-fill { transform-origin: left; transition: none; }
+.timer-settings { display: grid; grid-template-columns: 1fr 72px; gap: 8px; margin-bottom: 16px; align-items: center; }
+.timer-settings input { width: 72px; padding: 6px; }
+.timer-settings p, .timer-settings button { grid-column: 1 / -1; }
+:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 3px; }
+@media (max-width: 800px) {
+  .host-layout { grid-template-columns: 1fr; height: auto; }
+  #host-main { overflow: visible; padding: 16px; }
+  #host-sidebar { border-right: 0; }
+  #board-container { padding: 12px; }
+  .jeopardy-grid { gap: 6px; }
+  .category-card { padding: 6px; }
+  .category-title { font-size: 12px; }
+  #board-scoreboard { flex-wrap: wrap; gap: 8px; }
+  .team-score-card { min-width: 110px; padding: 8px; }
+  .score-team-name { font-size: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

@@ -119,9 +119,15 @@
               <span style="font-size: 13px; color: var(--color-text-muted);">Clue Font Size</span>
               <span id="font-scale-display" style="font-size: 13px; color: var(--color-accent); font-weight: bold;">100%</span>
             </div>
-            <input type="range" id="host-font-scale-slider" min="1.0" max="1.8" step="0.2" value="1.0" style="width: 100%; cursor: pointer;">
+            <input type="range" id="host-font-scale-slider" min="0.6" max="1.8" step="0.1" value="1.0" style="width: 100%; cursor: pointer;">
           </div>
 
+          <div class="timer-settings">
+            <label for="response-seconds">Response seconds</label><input id="response-seconds" type="number" min="1" max="120" value="5">
+            <label for="final-seconds">Final seconds</label><input id="final-seconds" type="number" min="1" max="120" value="30">
+            <p id="host-timer-status" role="status">Timer ready</p>
+            <button id="timer-toggle" class="btn" disabled>Pause timer</button>
+          </div>
           <!-- Collapsible Edit Teams Section -->
           <details class="glass" style="padding: 10px; border-radius: 8px; font-size: 13px; margin-bottom: 16px;">
             <summary style="cursor: pointer; color: var(--color-text-muted); font-weight: 600;">Edit Teams Mid-Game</summary>
@@ -222,12 +228,7 @@
       <header id="board-header" class="glass" style="padding: 16px 24px; display: flex; justify-content: space-between; align-items: center;">
         <h2 id="round-title">Trivia Board</h2>
         <span id="connection-status" role="status">Connecting…</span>
-        <div id="countdown-display" style="display: none; align-items: center; gap: 10px;">
-          <span style="font-family: var(--font-family-header); font-weight: 700; color: var(--color-accent);">Time Remaining:</span>
-          <div class="timer-bar-container">
-            <div id="timer-fill" class="timer-bar-fill"></div>
-          </div>
-        </div>
+
       </header>
 
       <!-- Categories and Clues Grid -->
@@ -244,8 +245,15 @@
 
     </div>
 
+    <div id="countdown-display" style="display: none; align-items: center; gap: 10px;">
+          <span id="timer-seconds" style="font-family: var(--font-family-header); font-weight: 700; color: var(--color-accent);">30s</span>
+          <div class="timer-bar-container">
+            <div id="timer-fill" class="timer-bar-fill"></div>
+          </div>
+        </div>
+
     <!-- Fullscreen Interactive Clue Zoom Overlay -->
-    <div id="clue-zoom-overlay" class="clue-overlay">
+    <div id="clue-zoom-overlay" class="clue-overlay" aria-hidden="true">
 
       <!-- Buzz in alert indicator -->
       <div id="buzz-alert" class="buzz-alert-overlay" style="display: none;">
@@ -268,10 +276,10 @@
         </div>
 
         <!-- Main Clue Question text -->
-        <p id="clue-display-text" class="clue-text">Clue prompt renders here...</p>
+        <p id="clue-display-text" dir="auto" class="clue-text">Clue prompt renders here...</p>
 
         <!-- Correct Answer text shown when host triggers reveal -->
-        <p id="clue-answer-text" class="clue-answer-text" style="display: none;"></p>
+        <p id="clue-answer-text" dir="auto" class="clue-answer-text" style="display: none;"></p>
 
       </div>
     </div>
@@ -282,7 +290,7 @@
         <h3 style="font-size: 20px; text-transform: uppercase; color: var(--color-accent); font-family: var(--font-family-header); font-weight: 700; letter-spacing: 0.1em; margin-bottom: 10px;">
           Introducing Category
         </h3>
-        <h1 id="intro-category-name" class="dd-title" style="font-size: 64px; text-shadow: 0 0 30px var(--color-accent-glow); margin-bottom: 20px;">
+        <h1 id="intro-category-name" class="dd-title" style="text-shadow: 0 0 30px var(--color-accent-glow); margin-bottom: 20px;">
           CATEGORY NAME
         </h1>
         <div style="font-size: 16px; color: var(--color-text-muted);" id="intro-category-count">

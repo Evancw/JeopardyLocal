@@ -41,6 +41,8 @@ const gameState = {
   categoryIntroIndex: null, // null | number (0-4) during active round category reveals
   settings: {
     clueFontSizeMultiplier: 1.0,
+    responseSeconds: 5,
+    finalSeconds: 30,
     soundEnabled: true
   }
 };
@@ -72,7 +74,9 @@ function loadStateFromStorage() {
     if (stored) {
       const parsed = JSON.parse(stored);
       if (!parsed.deck?.singleJeopardy?.categories || !parsed.deck?.doubleJeopardy?.categories || !Array.isArray(parsed.teams)) return false;
+      const defaultSettings = gameState.settings;
       Object.assign(gameState, parsed);
+      gameState.settings = { ...defaultSettings, ...parsed.settings };
       ensureDeckIds(gameState.deck);
       const clues = ['singleJeopardy', 'doubleJeopardy'].flatMap(round =>
         gameState.deck[round].categories.flatMap(cat => cat.clues.map(clue => ({ clue, round }))));
@@ -215,6 +219,25 @@ function gradeFinal(teamId, result) {
   if (!Number.isSafeInteger(score)) return false;
   team.score = score;
   team.finalResult = result;
+  gameState.timer = null;
+  return true;
+}
+
+function timerRemaining(timer = gameState.timer, now = Date.now()) {
+  if (!timer) return 0;
+  return timer.paused ? timer.remaining : Math.max(0, timer.deadline - now);
+}
+
+function startGameTimer(kind, now = Date.now()) {
+  const seconds = kind === 'final' ? gameState.settings.finalSeconds : gameState.settings.responseSeconds;
+  gameState.timer = { kind, duration: seconds * 1000, deadline: now + seconds * 1000, paused: false };
+}
+
+function toggleGameTimer(now = Date.now()) {
+  const timer = gameState.timer;
+  if (!timer || timerRemaining(timer, now) === 0) return false;
+  if (timer.paused) { timer.deadline = now + timer.remaining; timer.paused = false; }
+  else { timer.remaining = timerRemaining(timer, now); timer.paused = true; }
   return true;
 }
 

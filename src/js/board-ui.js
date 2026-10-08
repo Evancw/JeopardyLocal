@@ -109,10 +109,13 @@ onReady(() => {
     console.log(`Board received: ${message.action}`);
     switch (message.action) {
       case 'SHOW_CLUE': gameState.currentClue?.isDailyDouble ? gameAudio.playDailyDouble() : gameAudio.playSelect(); break;
-      case 'SHOW_FINAL_CLUE': gameAudio.playFinalJeopardy(); break;
+      case 'SHOW_FINAL_CLUE': gameAudio.playFinalJeopardy(timerRemaining() / 1000); break;
+      case 'PAUSE_TIMER': gameAudio.stopAll(); break;
+      case 'RESUME_TIMER': if (gameState.timer?.kind === 'final') gameAudio.playFinalJeopardy(timerRemaining() / 1000); break;
       case 'REVEAL_ANSWER': gameAudio.playSelect(); break;
       case 'SET_ACTIVE_TEAM': gameAudio.playBuzzer(); break;
       case 'RESOLVE_CLUE':
+        if (gameState.gamePhase === 'final_jeopardy') gameAudio.stopAll();
         if (message.payload?.isCorrect) gameAudio.playCorrect();
         else if (message.payload?.isIncorrect) gameAudio.playIncorrect();
         break;
@@ -414,6 +417,7 @@ onReady(() => {
    */
   function showClueOverlay(clue, playSound = true) {
     clearCountdown();
+    zoomOverlayEl.scrollTop = 0;
     buzzAlertEl.style.display = 'none';
     specialCardEl.style.display = 'none';
     mediaContainerEl.style.display = 'none';
@@ -437,10 +441,13 @@ onReady(() => {
       clueTextEl.textContent = ''; // Hide question until wager set
       
       zoomOverlayEl.classList.add('active');
+    zoomOverlayEl.setAttribute('aria-hidden', 'false');
+      zoomOverlayEl.setAttribute('aria-hidden', 'false');
       return;
     }
     
     zoomOverlayEl.classList.add('active');
+    zoomOverlayEl.setAttribute('aria-hidden', 'false');
     if (playSound) gameAudio.playSelect();
     if (clue.isDailyDouble) {
       specialCardEl.style.display = 'block';
@@ -476,6 +483,7 @@ onReady(() => {
 
   function hideClueOverlay() {
     zoomOverlayEl.classList.remove('active');
+    zoomOverlayEl.setAttribute('aria-hidden', 'true');
     buzzAlertEl.style.display = 'none';
     clearCountdown();
     gameAudio.stopAll(); // Stop active ticking clock or final jeopardy themes immediately!
@@ -515,44 +523,26 @@ onReady(() => {
 
   function startBuzzerCountdown() {
     clearCountdown();
-    countdownDisplayEl.style.display = 'flex';
-    
     const timer = gameState.timer;
     if (!timer) return;
-    const duration = timer.duration;
-    
-    timerFillEl.className = 'timer-bar-fill';
-    
-    function tick(timestamp) {
-      const elapsed = duration - Math.max(0, timer.deadline - Date.now());
-      const progress = Math.max(0, 1 - (elapsed / duration));
-      
-      timerFillEl.style.width = `${progress * 100}%`;
-      
-      if (progress < 0.3) {
-        timerFillEl.classList.add('warning');
-      }
-      
-      if (elapsed < duration) {
-        countdownTimerId = requestAnimationFrame(tick);
-      } else {
-        // Timer Expired: clear buzzer visual
-        timerFillEl.style.width = '0%';
-        // Expiry is visual; the host decides the grade.
-      }
+    countdownDisplayEl.style.display = 'flex';
+    function tick() {
+      const remaining = timerRemaining(timer);
+      const progress = remaining / timer.duration;
+      timerFillEl.style.transform = `scaleX(${progress})`;
+      timerFillEl.classList.toggle('warning', progress < 0.3);
+      document.getElementById('timer-seconds').textContent = `${Math.ceil(remaining / 1000)}s${timer.paused ? ' · Paused' : ''}`;
+      if (remaining > 0 && !timer.paused) countdownTimerId = requestAnimationFrame(tick);
     }
-    
-    countdownTimerId = requestAnimationFrame(tick);
+    tick();
   }
 
   function clearCountdown() {
-    if (countdownTimerId) {
-      cancelAnimationFrame(countdownTimerId);
-      countdownTimerId = null;
-    }
+    if (countdownTimerId) cancelAnimationFrame(countdownTimerId);
+    countdownTimerId = null;
     countdownDisplayEl.style.display = 'none';
     timerFillEl.className = 'timer-bar-fill';
-    timerFillEl.style.width = '100%';
+    timerFillEl.style.transform = 'scaleX(1)';
   }
 
   function renderCategoryIntroductions() {
