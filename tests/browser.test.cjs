@@ -68,3 +68,34 @@ test('CSV markup is literal and duplicate values spend separately', () => withGa
     assert.equal(await host.locator('.host-clue-card.spent').count(), 1);
   }
 ));
+test('Daily Double scoring is restricted to its wagering team', () => withGame(
+  header + 'single,Daily,200,Q,A,TRUE,none,', {}, async ({ host }) => {
+    await host.locator('.host-clue-card').click();
+    await host.locator('#dd-wager-input').fill('100oops');
+    await host.locator('#dd-submit-wager-btn').click();
+    assert.equal((await state(host)).currentWager, null);
+    await host.locator('#dd-wager-input').fill('100');
+    await host.locator('#dd-submit-wager-btn').click();
+    assert.equal(await host.locator('#quick-score-teams-row > div').count(), 1);
+    await host.locator('#quick-score-teams-row .btn-incorrect').click();
+    assert.equal((await state(host)).teams[0].score, -100);
+    assert.equal((await state(host)).currentClue, null);
+  }
+));
+test('optional rounds and zero-score Final corrections work', () => withGame(
+  header + 'single,Science,200,Q,A,FALSE,none,\nfinal,Final,,Q,A,FALSE,none,', {}, async ({ host }) => {
+    assert.equal(await host.locator('#btn-goto-double').isVisible(), false);
+    await host.locator('.score-display-input').first().fill('100');
+    await host.locator('.score-display-input').first().press('Tab');
+    await host.locator('#btn-goto-final').click();
+    assert.equal(await host.locator('#btn-goto-complete').isDisabled(), true);
+    await host.locator('.final-wager-input').fill('100');
+    await host.locator('#host-reveal-clue-btn').click();
+    await host.locator('.final-incorrect-btn').click();
+    assert.equal(await host.locator('.final-correct-btn').count(), 1);
+    await host.locator('.final-correct-btn').click();
+    assert.equal((await state(host)).teams[0].score, 200);
+    await host.locator('#host-final-complete-btn').click();
+    assert.equal((await state(host)).gamePhase, 'completed');
+  }
+));

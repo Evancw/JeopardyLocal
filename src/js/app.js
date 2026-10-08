@@ -24,6 +24,12 @@ const gameState = {
     finalJeopardy: null
   },
   currentClue: null, // Active Clue object
+  lockedOutTeamIds: [],
+  wageringTeamId: null,
+  clueStage: 'idle',
+  answerVisible: false,
+  finalParticipants: [],
+  finalStage: 'category',
   currentWager: null, // Active Daily Double / Final Jeopardy wager
   activeBuzzedTeamId: null, // Buzzed team ID allowed to answer
   spentClues: [], // Stable clue IDs
@@ -78,13 +84,116 @@ function resetGameState() {
       delete t.finalResult;
     });
   }
-  gameState.currentClue = null;
-  gameState.currentWager = null;
+  clearActiveClue();
+  gameState.finalParticipants = [];
+  gameState.finalStage = 'category';
   gameState.activeBuzzedTeamId = null;
   gameState.spentClues = [];
   gameState.categoryIntroIndex = null;
   gameState.gamePhase = 'setup';
   saveStateToStorage();
+}
+
+function clearActiveClue() {
+  gameState.currentClue = null;
+  gameState.currentWager = null;
+  gameState.activeBuzzedTeamId = null;
+  gameState.wageringTeamId = null;
+  gameState.lockedOutTeamIds = [];
+  gameState.clueStage = 'idle';
+  gameState.answerVisible = false;
+  gameState.timer = null;
+}
+
+function availablePhases() {
+  const phases = [];
+  if (gameState.deck.singleJeopardy.categories.length) phases.push('single_jeopardy');
+  if (gameState.deck.doubleJeopardy.categories.length) phases.push('double_jeopardy');
+  if (gameState.deck.finalJeopardy) phases.push('final_jeopardy');
+  return phases;
+}
+
+function nextGamePhase() {
+  const phases = availablePhases();
+  return phases[phases.indexOf(gameState.gamePhase) + 1] || 'completed';
+}
+
+function finalJudgingComplete() {
+  return gameState.finalParticipants.every(participant =>
+    gameState.teams.find(team => team.id === participant.teamId)?.finalResult);
+}
+
+function beginRound(phase) {
+  if (gameState.currentClue && gameState.gamePhase !== 'final_jeopardy') return false;
+  if (phase === 'completed' && gameState.gamePhase === 'final_jeopardy' && !finalJudgingComplete()) return false;
+  if (phase !== 'completed' && !availablePhases().includes(phase)) return false;
+  clearActiveClue();
+  gameState.gamePhase = phase;
+  gameState.categoryIntroIndex = ['single_jeopardy', 'double_jeopardy'].includes(phase) ? 0 : null;
+  if (phase !== 'completed') {
+    gameState.teams.forEach(team => { delete team.finalWager; delete team.finalResult; });
+    gameState.finalParticipants = phase === 'final_jeopardy' ? gameState.teams.filter(team => team.score > 0)
+      .map(team => ({ teamId: team.id, startingScore: team.score })) : [];
+    gameState.finalStage = 'category';
+  }
+  return true;
+}
+
+function openGameClue(clue) {
+  if (gameState.currentClue || gameState.spentClues.includes(clue.id)) return false;
+  clearActiveClue();
+  gameState.currentClue = clue;
+  gameState.clueStage = clue.isDailyDouble ? 'wager' : 'answering';
+  return true;
+}
+
+function setDailyDoubleWager(teamId, wager) {
+  const clue = gameState.currentClue;
+  const team = gameState.teams.find(t => t.id === teamId);
+  const round = gameState.gamePhase === 'double_jeopardy' ? 'doubleJeopardy' : 'singleJeopardy';
+  const maximum = Math.max(...gameState.deck[round].categories.flatMap(c => c.clues.map(q => q.value)), team?.score || 0);
+  if (!team || !clue?.isDailyDouble || gameState.clueStage !== 'wager' || !Number.isSafeInteger(wager) || wager < 5 || wager > maximum) return false;
+  gameState.currentWager = wager;
+  gameState.wageringTeamId = teamId;
+  gameState.activeBuzzedTeamId = teamId;
+  gameState.clueStage = 'answering';
+  return true;
+}
+
+function gradeClue(teamId, result) {
+  const clue = gameState.currentClue;
+  if (!clue || gameState.gamePhase === 'final_jeopardy' || !['correct', 'incorrect', 'skip'].includes(result)) return null;
+  if (result !== 'skip') {
+    const team = gameState.teams.find(t => t.id === teamId);
+    if (!team || gameState.lockedOutTeamIds.includes(teamId) || gameState.clueStage !== 'answering') return null;
+    if (clue.isDailyDouble && gameState.wageringTeamId !== teamId) return null;
+    const points = clue.isDailyDouble ? gameState.currentWager : clue.value;
+    const score = team.score + (result === 'correct' ? points : -points);
+    if (!Number.isSafeInteger(points) || !Number.isSafeInteger(score)) return null;
+    team.score = score;
+    if (result === 'incorrect') gameState.lockedOutTeamIds.push(teamId);
+  }
+  const keepOpen = result === 'incorrect' && !clue.isDailyDouble && gameState.lockedOutTeamIds.length < gameState.teams.length;
+  gameState.activeBuzzedTeamId = null;
+  gameState.timer = null;
+  if (!keepOpen) {
+    if (!gameState.spentClues.includes(clue.id)) gameState.spentClues.push(clue.id);
+    clearActiveClue();
+  }
+  return { isCorrect: result === 'correct', isIncorrect: result === 'incorrect', keepOpen };
+}
+
+function gradeFinal(teamId, result) {
+  if (gameState.gamePhase !== 'final_jeopardy' || !['correct', 'incorrect'].includes(result) || gameState.finalStage !== 'judging') return false;
+  const participant = gameState.finalParticipants.find(p => p.teamId === teamId);
+  const team = gameState.teams.find(t => t.id === teamId);
+  if (!participant || !team || !Number.isSafeInteger(team.finalWager)) return false;
+  const previous = team.finalResult === 'correct' ? team.finalWager : team.finalResult === 'incorrect' ? -team.finalWager : 0;
+  const score = team.score + (result === 'correct' ? team.finalWager : -team.finalWager) - previous;
+  if (!Number.isSafeInteger(score)) return false;
+  team.score = score;
+  team.finalResult = result;
+  return true;
 }
 
 // Sync command emitter

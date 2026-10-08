@@ -45,3 +45,31 @@ test('money is validated and repeated values have separate IDs', () => {
   assert.equal(deck.importSummary.warnings.length, 1);
 });
 module.exports = { engine };
+test('all normal grading paths enforce lockouts and one-time scoring', () => {
+  const e = engine();
+  vm.runInContext(`gameState.deck = processCSVDeck(${JSON.stringify(header + row)}); gameState.teams = [{id:1,score:0},{id:2,score:0}]; beginRound('single_jeopardy'); openGameClue(gameState.deck.singleJeopardy.categories[0].clues[0]);`, e);
+  assert.equal(e.gradeClue(1, 'incorrect').keepOpen, true);
+  assert.equal(e.gradeClue(1, 'correct'), null);
+  assert.equal(e.gradeClue(2, 'correct').keepOpen, false);
+  assert.equal(e.gradeClue(2, 'correct'), null);
+  assert.equal(vm.runInContext('gameState.teams[0].score', e), -200);
+  assert.equal(vm.runInContext('gameState.spentClues.length', e), 1);
+});
+test('Daily Double rejects other teams and invalid wagers', () => {
+  const e = engine();
+  vm.runInContext(`gameState.deck = processCSVDeck(${JSON.stringify(header + row.replace('FALSE', 'TRUE'))}); gameState.teams = [{id:1,score:0},{id:2,score:0}]; beginRound('single_jeopardy'); openGameClue(gameState.deck.singleJeopardy.categories[0].clues[0]);`, e);
+  assert.equal(e.setDailyDoubleWager(1, 201), false);
+  assert.equal(e.setDailyDoubleWager(1, 100), true);
+  assert.equal(e.gradeClue(2, 'correct'), null);
+  assert.equal(e.gradeClue(1, 'incorrect').keepOpen, false);
+});
+test('Final participants remain judgeable at zero and completion is guarded', () => {
+  const e = engine();
+  vm.runInContext(`gameState.deck = processCSVDeck(${JSON.stringify(header + row + '\nfinal,Final,,Q,A,FALSE,none,')}); gameState.teams = [{id:1,score:100},{id:2,score:0}]; beginRound('final_jeopardy'); gameState.teams[0].finalWager = 100; gameState.finalStage = 'judging';`, e);
+  assert.equal(e.beginRound('completed'), false);
+  assert.equal(e.gradeFinal(1, 'incorrect'), true);
+  assert.equal(vm.runInContext('gameState.teams[0].score', e), 0);
+  assert.equal(e.gradeFinal(1, 'correct'), true);
+  assert.equal(vm.runInContext('gameState.teams[0].score', e), 200);
+  assert.equal(e.beginRound('completed'), true);
+});
