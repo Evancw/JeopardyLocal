@@ -195,45 +195,26 @@ onReady(() => {
     });
   }
 
-  // --- Broadcast Channel sync request listener ---
-  if (broadcastChannel) {
-    broadcastChannel.onmessage = (event) => {
-      const { action, payload } = event.data;
-      if (action === 'SYNC_REQUEST') {
-        console.log("Sync requested by spectator screen via BroadcastChannel. Broadcasting state...");
-        broadcastState();
-      } else if (action === 'SYNC_STATE' && payload && payload.state) {
-        // Bi-directional state sync (e.g. from spectator sound toggle)
-        if (payload.state.settings) {
-          Object.assign(gameState.settings, payload.state.settings);
-          initSettingsUI();
-        }
-      }
-    };
+  let lastBoardContact = 0;
+  const connectionStatus = document.getElementById('host-connection-status');
+  const healthTimer = setInterval(() => {
+    if (connectionStatus && lastBoardContact && Date.now() - lastBoardContact > 6000) connectionStatus.textContent = 'Board disconnected · open board to reconnect';
+  }, 3000);
+  window.addEventListener('pagehide', () => clearInterval(healthTimer), { once: true });
+  function receiveBoardRequest(message, source = null) {
+    if (message?.protocol !== 1 || message.role !== 'board' || message.action !== 'SYNC_REQUEST') return;
+    if (message.sessionId && message.sessionId !== gameState.sessionId) return;
+    if (source) directWindows.add(source);
+    lastBoardContact = Date.now();
+    if (connectionStatus) connectionStatus.textContent = 'Board connected';
+    broadcastState(message.initial || message.deckId !== gameState.deck.id);
   }
-
-  // Direct Window message listener for offline file:// fallback
-  window.addEventListener('message', (event) => {
-    const { action, payload } = event.data || {};
-    if (action === 'SYNC_REQUEST') {
-      console.log("Sync requested by spectator screen via window message. Registering window...");
-      if (event.source) {
-        directWindows.add(event.source);
-      }
-      broadcastState();
-    } else if (action === 'SYNC_STATE' && payload && payload.state) {
-      // Bi-directional state sync (e.g. from spectator sound toggle)
-      if (payload.state.settings) {
-        Object.assign(gameState.settings, payload.state.settings);
-        initSettingsUI();
-      }
-    }
+  if (broadcastChannel) broadcastChannel.onmessage = event => receiveBoardRequest(event.data);
+  window.addEventListener('message', event => {
+    if (trustedWindowMessage(event)) receiveBoardRequest(event.data, event.source);
   });
-
-  function broadcastState() {
-    const syncPayload = { ...gameState };
-    delete syncPayload.deck;
-    broadcastAction('SYNC_STATE', { state: syncPayload });
+  function broadcastState(fullSnapshot = false) {
+    broadcastAction('SYNC_STATE', { fullSnapshot });
   }
 
   // Wire settings element event listeners
@@ -396,6 +377,7 @@ onReady(() => {
     renderPresenterGrid();
     renderRoundTransitions();
     renderEditTeamsPanel(); // Initialize dynamic edit rows mid-game
+    renderClueController();
   }
 
   function renderSidebarScoreboards() {
@@ -486,6 +468,7 @@ onReady(() => {
     renderRoundTransitions();
     renderSidebarScoreboards();
     renderPresenterGrid();
+    renderClueController();
   }
 
   function renderPresenterGrid() {
@@ -652,6 +635,8 @@ onReady(() => {
         
         document.getElementById('host-reveal-category-btn').addEventListener('click', () => {
           if (gameState.deck.finalJeopardy) {
+            gameState.finalStage = 'category';
+            saveStateToStorage();
             broadcastAction('SHOW_FINAL_CATEGORY', { category: gameState.deck.finalJeopardy.category });
           }
         });
@@ -690,6 +675,7 @@ onReady(() => {
           gameState.currentClue = gameState.deck.finalJeopardy;
           gameState.clueStage = 'answering';
           gameState.finalStage = 'judging';
+          gameState.timer = { kind: 'final', duration: 30000, deadline: Date.now() + 30000 };
           // Save wagers to state
           wagerData.forEach(data => {
             const team = gameState.teams.find(t => t.id === data.teamId);
@@ -768,6 +754,8 @@ onReady(() => {
 
         document.getElementById('host-final-reveal-ans-btn').addEventListener('click', () => {
           if (gameState.deck.finalJeopardy) {
+            gameState.answerVisible = true;
+            saveStateToStorage();
             broadcastAction('REVEAL_ANSWER', { answer: gameState.deck.finalJeopardy.answer });
           }
         });
@@ -811,7 +799,7 @@ onReady(() => {
           resetBtn.addEventListener('click', () => {
             if (confirm("Are you sure you want to reset and start a new game? This clears current scores but preserves the loaded CSV game deck in memory.")) {
               resetGameState();
-              broadcastAction('SYNC_STATE', { state: gameState });
+              broadcastState(true);
               setTimeout(() => {
                 window.location.reload();
               }, 150);
@@ -878,21 +866,25 @@ onReady(() => {
   /**
    * ACTIVATE CLUE CONTROL PANEL (JUDGING)
    */
-  function activateClueControl(clue, categoryName) {
+  function activateClueControl(clue) {
     if (!openGameClue(clue)) return;
-    renderRoundTransitions();
-    
     saveStateToStorage();
-    
-    // Broadcast clue reveal to spectator board
     broadcastAction('SHOW_CLUE', { clue });
-    
+    renderRoundTransitions();
+    renderClueController();
+    hostClueController.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function renderClueController() {
+    const clue = gameState.currentClue;
+    if (!clue || gameState.gamePhase === 'final_jeopardy') { hostClueController.style.display = 'none'; return; }
+    const categoryName = clue.category;
     controllerCategory.textContent = `${categoryName} - $${clue.value || 'Final'}`;
     controllerQuestion.textContent = clue.question;
     controllerAnswer.textContent = `Correct Answer: ${clue.answer}`;
     
     // Daily Double vs. Standard Clue check
-    if (clue.isDailyDouble) {
+    if (clue.isDailyDouble && gameState.clueStage === 'wager') {
       // Reveal Daily Double wagering panel
       ddWagerPanel.style.display = 'block';
       if (ddWagerError) {
@@ -918,15 +910,14 @@ onReady(() => {
       ddWagerPanel.style.display = 'none';
       buzzerActionPanel.style.display = 'block';
       quickScorePanel.style.display = 'block';
-      renderBuzzerClaimButtons();
+      if (clue.isDailyDouble) renderDailyDoubleBuzzerButton(gameState.wageringTeamId);
+      else renderBuzzerClaimButtons();
       renderQuickScoreButtons();
-      
-      hostClueCorrectBtn.disabled = true;
-      hostClueIncorrectBtn.disabled = true;
+      hostClueCorrectBtn.disabled = !gameState.activeBuzzedTeamId;
+      hostClueIncorrectBtn.disabled = !gameState.activeBuzzedTeamId;
     }
     
     hostClueController.style.display = 'flex';
-    hostClueController.scrollIntoView({ behavior: 'smooth' });
   }
 
   if (ddWagerInput) {
@@ -1110,6 +1101,7 @@ onReady(() => {
     if (!gameState.currentClue || gameState.clueStage !== 'answering' || gameState.lockedOutTeamIds.includes(teamId)) return;
     if (gameState.currentClue.isDailyDouble && gameState.wageringTeamId !== teamId) return;
     gameState.activeBuzzedTeamId = teamId;
+    gameState.timer = { kind: 'response', duration: 5000, deadline: Date.now() + 5000 };
     saveStateToStorage();
     // Broadcast buzzer claim to spectator board (triggers beep + 5s timer)
     broadcastAction('SET_ACTIVE_TEAM', { teamId });
@@ -1137,6 +1129,8 @@ onReady(() => {
 
   hostRevealAnswerBtn.addEventListener('click', () => {
     if (gameState.currentClue) {
+      gameState.answerVisible = true;
+      saveStateToStorage();
       broadcastAction('REVEAL_ANSWER', { answer: gameState.currentClue.answer });
     }
   });
@@ -1147,24 +1141,12 @@ onReady(() => {
   openBoardBtn.addEventListener('click', () => {
     // In single-file/inline mode, the page name can be index.html or anything else.
     // If the path does not end with 'host.html', we assume we are in unified/routed mode and open the current page with '?view=board'.
-    const isHostFile = window.location.pathname.endsWith('host.html');
-    const filename = window.location.pathname.substring(window.location.pathname.lastIndexOf('/') + 1);
-    const targetUrl = isHostFile ? 'board.html' : `${filename || 'index.html'}?view=board`;
-    
-    const win = window.open(targetUrl, 'jeopardy_board_display', 'width=1200,height=800');
-    if (win) {
-      directWindows.add(win);
-      // Wait a tiny bit and send sync state directly to the new window
-      setTimeout(() => {
-        try {
-          if (win && !win.closed) {
-            win.postMessage({ action: 'SYNC_STATE', payload: { state: gameState } }, '*');
-          }
-        } catch (e) {
-          console.warn("Failed to send initial sync to newly opened window:", e);
-        }
-      }, 500); // 500ms delay to allow the window to load
-    }
+    const target = window.location.pathname.endsWith('host.html') ? new URL('board.html', window.location.href) : new URL(window.location.href);
+    target.searchParams.set('view', 'board');
+    target.searchParams.set('session', gameState.sessionId);
+    const win = window.open(target.href, 'jeopardy_board_display', 'width=1200,height=800');
+    if (win) directWindows.add(win);
+    else if (connectionStatus) connectionStatus.textContent = 'Popup blocked · allow popups and try again';
   });
 
   // Sidebar Reset Game Session click listener
@@ -1172,7 +1154,7 @@ onReady(() => {
     resetGameBtn.addEventListener('click', () => {
       if (confirm("Are you sure you want to reset and start a new game? This clears current scores but preserves the loaded CSV game deck in memory.")) {
         resetGameState();
-        broadcastAction('SYNC_STATE', { state: gameState });
+        broadcastState(true);
         setTimeout(() => {
           window.location.reload();
         }, 150);

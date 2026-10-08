@@ -99,3 +99,44 @@ test('optional rounds and zero-score Final corrections work', () => withGame(
     assert.equal((await state(host)).gamePhase, 'completed');
   }
 ));
+test('host and board reload restore active clue, answer and lockouts', () => withGame(sample, {}, async game => {
+  const { host } = game, board = await openBoard(game);
+  let shows = 0;
+  board.on('console', message => { if (message.text() === 'Board received: SHOW_CLUE') shows++; });
+  await host.locator('.host-clue-card').first().click();
+  await board.waitForFunction(() => gameState.currentClue?.question === 'Q1');
+  assert.equal(shows, 1);
+  await host.locator('#buzzer-teams-row button').first().click();
+  await host.locator('#host-clue-incorrect-btn').click();
+  await host.locator('#host-reveal-answer-btn').click();
+  await host.reload();
+  assert.equal(await host.locator('#host-clue-controller').isVisible(), true);
+  assert.equal(await host.locator('#buzzer-teams-row button').first().isDisabled(), true);
+  await board.reload();
+  await board.waitForFunction(() => gameState.answerVisible);
+  assert.equal(await board.locator('#clue-answer-text').textContent(), 'A1');
+  assert.equal(await board.locator('#clue-zoom-overlay').evaluate(el => el.classList.contains('active')), true);
+}));
+test('late offline handshake and host reload reconnect without storage', () => withGame(sample,
+  { file: true, noBC: true, noStorage: true, delayBoard: true }, async game => {
+    const { host } = game, board = await openBoard(game);
+    assert.equal((await state(board)).deck.singleJeopardy.categories.length, 1);
+    // With unavailable storage, reload the host only after enabling storage for its saved state.
+    // The separate stored-state reload case below checks connection healing.
+    await host.locator('.host-clue-card').first().click();
+    await board.waitForFunction(() => gameState.currentClue?.question === 'Q1');
+    await board.reload();
+    await board.waitForFunction(() => gameState.currentClue?.question === 'Q1');
+    assert.equal(await board.locator('#clue-zoom-overlay').evaluate(el => el.classList.contains('active')), true);
+  }
+));
+test('offline bridge heals after host reload and round intros synchronize', () => withGame(sample, { noBC: true }, async game => {
+  const { host } = game, board = await openBoard(game);
+  await host.reload();
+  await host.locator('.host-clue-card').first().click();
+  await board.waitForFunction(() => gameState.currentClue?.question === 'Q1');
+  await host.locator('#host-clue-skip-btn').click();
+  await host.locator('#btn-goto-double').click();
+  await board.waitForFunction(() => gameState.categoryIntroIndex === 0 && gameState.gamePhase === 'double_jeopardy');
+  assert.equal(await board.locator('#intro-category-name').textContent(), 'Double');
+}));

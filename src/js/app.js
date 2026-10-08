@@ -17,6 +17,9 @@ const directWindows = new Set();
 
 // Central State Structure
 const gameState = {
+  sessionId: globalThis.crypto?.randomUUID?.() || `session-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  revision: 0,
+  timer: null,
   teams: [], // Dynamic array of 2 to 4 teams
   deck: {
     singleJeopardy: { categories: [] },
@@ -45,9 +48,18 @@ const gameState = {
 // State Helpers
 const STORAGE_KEY = 'jeopardy_local_state';
 
+function isHostView() {
+  if (typeof window === 'undefined') return true;
+  return new URLSearchParams(window.location.search).get('view') !== 'board' && !window.location.pathname.endsWith('board.html');
+}
+
 function saveStateToStorage() {
+  if (!isHostView()) return;
+  gameState.revision = Math.max(Date.now(), gameState.revision + 1);
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState));
+    const state = JSON.stringify(gameState);
+    localStorage.setItem(STORAGE_KEY, state);
+    localStorage.setItem(`${STORAGE_KEY}:${gameState.sessionId}`, state);
   } catch (e) {
     console.warn("localStorage save failed (blocked or disabled):", e);
   }
@@ -55,9 +67,11 @@ function saveStateToStorage() {
 
 function loadStateFromStorage() {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const session = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('session');
+    const stored = localStorage.getItem(session ? `${STORAGE_KEY}:${session}` : STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
+      if (!parsed.deck?.singleJeopardy?.categories || !parsed.deck?.doubleJeopardy?.categories || !Array.isArray(parsed.teams)) return false;
       Object.assign(gameState, parsed);
       ensureDeckIds(gameState.deck);
       const clues = ['singleJeopardy', 'doubleJeopardy'].flatMap(round =>
@@ -67,6 +81,14 @@ function loadStateFromStorage() {
       if (gameState.currentClue && !gameState.currentClue.id) {
         gameState.currentClue = clues.find(({ clue }) => clue.category === gameState.currentClue.category &&
           clue.question === gameState.currentClue.question)?.clue || null;
+      }
+      if (!parsed.clueStage) gameState.clueStage = gameState.currentClue ?
+        (gameState.currentClue.isDailyDouble && !gameState.currentWager ? 'wager' : 'answering') : 'idle';
+      if (!parsed.wageringTeamId && gameState.currentClue?.isDailyDouble) gameState.wageringTeamId = gameState.activeBuzzedTeamId;
+      if (!parsed.finalParticipants && gameState.gamePhase === 'final_jeopardy') {
+        gameState.finalParticipants = gameState.teams.filter(t => t.score > 0 || typeof t.finalWager === 'number')
+          .map(t => ({ teamId: t.id, startingScore: t.score - (t.finalResult === 'correct' ? t.finalWager : t.finalResult === 'incorrect' ? -t.finalWager : 0) }));
+        gameState.finalStage = gameState.teams.some(t => typeof t.finalWager === 'number') ? 'judging' : 'wager';
       }
       return true;
     }
@@ -134,7 +156,7 @@ function beginRound(phase) {
     gameState.teams.forEach(team => { delete team.finalWager; delete team.finalResult; });
     gameState.finalParticipants = phase === 'final_jeopardy' ? gameState.teams.filter(team => team.score > 0)
       .map(team => ({ teamId: team.id, startingScore: team.score })) : [];
-    gameState.finalStage = 'category';
+    gameState.finalStage = phase === 'final_jeopardy' ? 'wager' : 'category';
   }
   return true;
 }
@@ -196,28 +218,26 @@ function gradeFinal(teamId, result) {
   return true;
 }
 
-// Sync command emitter
+function stateSnapshot(includeDeck = false) {
+  const state = { ...gameState };
+  if (!includeDeck) delete state.deck;
+  return state;
+}
+
 function broadcastAction(action, payload = null) {
-  // 1. BroadcastChannel (modern samedomain tab sync)
+  gameState.revision = Math.max(Date.now(), gameState.revision + 1);
+  const message = { protocol: 1, role: 'host', sessionId: gameState.sessionId,
+    revision: gameState.revision, action, payload,
+    state: stateSnapshot(Boolean(payload?.fullSnapshot)), deckId: gameState.deck.id };
   if (broadcastChannel) {
-    try {
-      broadcastChannel.postMessage({ action, payload });
-    } catch (e) {
-      console.warn("BroadcastChannel postMessage failed:", e);
-    }
+    try { broadcastChannel.postMessage(message); } catch (error) { console.warn('Channel send failed:', error); }
   }
-  
-  // 2. Direct Window Messaging (Offline file:// protocol fallback)
   directWindows.forEach(win => {
-    try {
-      if (win && !win.closed) {
-        win.postMessage({ action, payload }, '*');
-      } else {
-        directWindows.delete(win);
-      }
-    } catch (e) {
-      console.warn("Failed to direct postMessage to child window:", e);
-      directWindows.delete(win);
-    }
+    try { if (win && !win.closed) win.postMessage(message, '*'); else directWindows.delete(win); }
+    catch { directWindows.delete(win); }
   });
+}
+
+function trustedWindowMessage(event) {
+  return event.origin === window.location.origin || (window.location.protocol === 'file:' && event.origin === 'null');
 }

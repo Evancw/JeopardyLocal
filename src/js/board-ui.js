@@ -43,211 +43,93 @@ onReady(() => {
   let hasRenderedWinnerReveal = false;
   const preloadedImageUrls = new Set();
 
-  // Initialize and request initial sync from Host Console
   loadStateFromStorage();
-  applySyncSettings(); // Sync dynamic styling variables and sound states
-  preloadDeckImages(); // Preload recovered images immediately!
+  let requestedSession = new URLSearchParams(window.location.search).get('session') || null;
+  let lastRevision = -1, lastContact = 0, lastClueView = '', lastTimer = '', lastBuzz = null;
+  const connection = document.getElementById('connection-status');
+  applySyncSettings();
   renderCompleteBoard();
   renderCategoryIntroductions();
-  
-  // 1. Initial handshake with Host Console (bounded retry to eliminate 2s infinite polling)
-  let initialSyncReceived = false;
-  let syncRetryCount = 0;
-  const maxSyncRetries = 5;
+  renderCurrentClue();
 
   function sendSyncRequest() {
-    if (initialSyncReceived) return;
-    broadcastAction('SYNC_REQUEST');
-    if (window.opener) {
-      try {
-        window.opener.postMessage({ action: 'SYNC_REQUEST' }, '*');
-      } catch (e) {
-        console.warn("Failed to send SYNC_REQUEST to opener window:", e);
-      }
+    const message = { protocol: 1, role: 'board', action: 'SYNC_REQUEST', sessionId: requestedSession,
+      deckId: gameState.deck.id, initial: lastRevision < 0 };
+    if (window.opener && !window.opener.closed) {
+      try { window.opener.postMessage(message, '*'); return; } catch {}
+    }
+    if (broadcastChannel) broadcastChannel.postMessage(message);
+  }
+
+  function renderCurrentClue() {
+    const clue = gameState.currentClue;
+    const categoryOnly = gameState.gamePhase === 'final_jeopardy' && gameState.finalStage === 'category';
+    const key = JSON.stringify([clue?.id, gameState.clueStage, gameState.currentWager, categoryOnly, clue?.mediaUrl]);
+    if (key !== lastClueView) {
+      lastClueView = key;
+      if (clue) showClueOverlay(clue, false);
+      else if (categoryOnly) showClueOverlay({ question: `Category: ${gameState.deck.finalJeopardy?.category || ''}` }, false);
+      else hideClueOverlay();
+    }
+    const answer = document.getElementById('clue-answer-text');
+    if (answer) {
+      answer.textContent = gameState.answerVisible && clue ? clue.answer : '';
+      answer.style.display = gameState.answerVisible && clue ? 'inline-block' : 'none';
+    }
+    if (gameState.activeBuzzedTeamId !== lastBuzz) {
+      lastBuzz = gameState.activeBuzzedTeamId;
+      if (lastBuzz) triggerBuzzerClaim(lastBuzz, false);
+      else buzzAlertEl.style.display = 'none';
+    }
+    const timerKey = JSON.stringify(gameState.timer);
+    if (lastTimer !== timerKey) {
+      lastTimer = timerKey;
+      if (gameState.timer) startBuzzerCountdown(); else clearCountdown();
     }
   }
 
-  sendSyncRequest();
-
-  const syncRetryInterval = setInterval(() => {
-    if (initialSyncReceived || ++syncRetryCount >= maxSyncRetries) {
-      clearInterval(syncRetryInterval);
-      return;
-    }
-    sendSyncRequest();
-  }, 1000);
-
-  // Recovery ping when spectator window regains focus
-  window.addEventListener('focus', () => {
-    if (!initialSyncReceived) sendSyncRequest();
-  });
-
-  // Action dispatcher
-  function handleIncomingAction(action, payload) {
-    console.log(`Board received: ${action}`, payload);
-    
-    switch (action) {
-      case 'SYNC_STATE':
-        initialSyncReceived = true;
-        const prevPhase = gameState.gamePhase;
-        const prevIntro = gameState.categoryIntroIndex;
-        const savedDeck = gameState.deck;
-        Object.assign(gameState, payload.state);
-        if (!gameState.deck || !gameState.deck.singleJeopardy?.categories?.length) {
-          gameState.deck = savedDeck;
-        }
-        preloadDeckImages(); // Preload newly synced images immediately!
-        applySyncSettings(); // Apply settings dynamically on sync!
-        if (gameState.gamePhase === 'setup') {
-          hasPlayedVictoryFanfare = false;
-          hasRenderedWinnerReveal = false;
-          gameAudio.stopAll(); // Stop all audio immediately on reset!
-          // Pristine local state wipe
-          gameState.spentClues = [];
-          gameState.currentClue = null;
-          gameState.currentWager = null;
-          gameState.activeBuzzedTeamId = null;
-          if (gameState.teams) {
-            gameState.teams.forEach(t => {
-              t.score = 0;
-              delete t.finalWager;
-              delete t.finalResult;
-            });
-          }
-          saveStateToStorage();
-          renderCompleteBoard();
-          renderCategoryIntroductions();
-        } else {
-          saveStateToStorage();
-          // Avoid tearing down the entire DOM if phase hasn't changed and grid already exists
-          const needsFullRedraw = prevPhase !== gameState.gamePhase || !gridEl.hasChildNodes();
-          if (needsFullRedraw) {
-            renderCompleteBoard();
-          } else {
-            renderRoundTitle();
-            renderScoreboard();
-            updateClueCardStates();
-          }
-          if (prevIntro !== gameState.categoryIntroIndex || prevPhase !== gameState.gamePhase) {
-            renderCategoryIntroductions();
-          }
-        }
-        break;
-      case 'SHOW_CLUE':
-        gameState.currentClue = payload.clue;
-        showClueOverlay(payload.clue);
-        break;
-      case 'SHOW_FINAL_CATEGORY':
-        showClueOverlay({
-          category: "Final Jeopardy Category",
-          question: `Category: ${payload.category}`,
-          answer: "",
-          isDailyDouble: false
-        });
-        break;
-      case 'SHOW_FINAL_CLUE':
-        gameState.currentClue = payload.clue;
-        showClueOverlay(payload.clue);
-        // Play final jeopardy ticking theme music
-        gameAudio.playFinalJeopardy();
-        break;
-      case 'REVEAL_ANSWER':
-        revealCorrectAnswer(payload.answer);
-        break;
-      case 'SET_WAGER':
-        gameState.currentWager = payload.wager;
-        revealWager(payload.wager);
-        break;
-      case 'SET_ACTIVE_TEAM':
-        gameState.activeBuzzedTeamId = payload.teamId;
-        triggerBuzzerClaim(payload.teamId);
-        break;
+  function receiveHostMessage(message) {
+    if (message?.protocol !== 1 || message.role !== 'host' || !message.state || !Array.isArray(message.state.teams)) return;
+    if (requestedSession && message.sessionId !== requestedSession) return;
+    if (!Number.isFinite(message.revision) || message.revision <= lastRevision) return;
+    if (!message.state.deck && message.deckId !== gameState.deck.id) { sendSyncRequest(); return; }
+    const prevPhase = gameState.gamePhase, prevIntro = gameState.categoryIntroIndex, prevDeck = gameState.deck.id;
+    requestedSession = message.sessionId;
+    lastRevision = message.revision;
+    lastContact = Date.now();
+    if (connection) connection.textContent = 'Connected';
+    Object.assign(gameState, message.state);
+    applySyncSettings();
+    if (prevDeck !== gameState.deck.id) preloadDeckImages();
+    if (gameState.gamePhase === 'setup') { hasPlayedVictoryFanfare = false; hasRenderedWinnerReveal = false; }
+    if (prevPhase !== gameState.gamePhase || prevDeck !== gameState.deck.id || !gridEl.hasChildNodes() || gameState.gamePhase === 'completed') renderCompleteBoard();
+    else { renderRoundTitle(); renderScoreboard(); updateClueCardStates(); }
+    if (prevIntro !== gameState.categoryIntroIndex || prevPhase !== gameState.gamePhase || prevDeck !== gameState.deck.id) renderCategoryIntroductions();
+    renderCurrentClue();
+    console.log(`Board received: ${message.action}`);
+    switch (message.action) {
+      case 'SHOW_CLUE': gameState.currentClue?.isDailyDouble ? gameAudio.playDailyDouble() : gameAudio.playSelect(); break;
+      case 'SHOW_FINAL_CLUE': gameAudio.playFinalJeopardy(); break;
+      case 'REVEAL_ANSWER': gameAudio.playSelect(); break;
+      case 'SET_ACTIVE_TEAM': gameAudio.playBuzzer(); break;
       case 'RESOLVE_CLUE':
-        // Resolve clue (awards scores, clears active buzzer, and updates grid spent array)
-        clearCountdown();
-        
-        // Hide buzzer alert banner in case of retry
-        buzzAlertEl.style.display = 'none';
-
-        if (payload.keepOpen) {
-          gameState.teams = payload.teams;
-          gameState.activeBuzzedTeamId = null;
-          saveStateToStorage();
-          
-          if (payload.isIncorrect) {
-            gameAudio.playIncorrect();
-          }
-          
-          renderScoreboard();
-        } else {
-          gameState.spentClues = payload.spentClues;
-          gameState.teams = payload.teams;
-          gameState.activeBuzzedTeamId = null;
-          gameState.currentClue = null;
-          gameState.currentWager = null;
-          
-          saveStateToStorage();
-          
-          // Audio Polish
-          if (payload.isCorrect) {
-            gameAudio.playCorrect();
-          } else if (payload.isIncorrect) {
-            gameAudio.playIncorrect();
-          }
-          
-          hideClueOverlay();
-          renderScoreboard();
-          updateClueCardStates();
-        }
-        break;
-      case 'SET_PHASE':
-        clearCountdown();
-        gameState.gamePhase = payload.gamePhase;
-        if (payload.gamePhase === 'setup') {
-          hasPlayedVictoryFanfare = false;
-          gameAudio.stopAll(); // Stop all audio immediately on reset!
-          // Pristine local state wipe
-          gameState.spentClues = [];
-          gameState.currentClue = null;
-          gameState.currentWager = null;
-          gameState.activeBuzzedTeamId = null;
-          if (gameState.teams) {
-            gameState.teams.forEach(t => {
-              t.score = 0;
-              delete t.finalWager;
-              delete t.finalResult;
-            });
-          }
-        }
-        gameState.activeBuzzedTeamId = null;
-        gameState.currentClue = null;
-        gameState.currentWager = null;
-        saveStateToStorage();
-        
-        hideClueOverlay();
-        renderCompleteBoard();
-        break;
-      case 'SYNC_REQUEST':
-        // Presenter page handles this, but ignore if received
+        if (message.payload?.isCorrect) gameAudio.playCorrect();
+        else if (message.payload?.isIncorrect) gameAudio.playIncorrect();
         break;
     }
   }
 
-  // 1. Broadcast Message Event Listener
-  if (broadcastChannel) {
-    broadcastChannel.onmessage = (event) => {
-      const { action, payload } = event.data;
-      handleIncomingAction(action, payload);
-    };
-  }
-
-  // 2. Direct Window Message Event Listener (offline file:// fallback)
-  window.addEventListener('message', (event) => {
-    const { action, payload } = event.data || {};
-    if (action && action !== 'SYNC_REQUEST') {
-      handleIncomingAction(action, payload);
-    }
+  if (broadcastChannel) broadcastChannel.onmessage = event => receiveHostMessage(event.data);
+  window.addEventListener('message', event => {
+    if (trustedWindowMessage(event) && (!window.opener || event.source === window.opener)) receiveHostMessage(event.data);
   });
+  window.addEventListener('focus', sendSyncRequest);
+  const heartbeat = setInterval(() => {
+    if (connection && Date.now() - lastContact > 6000) connection.textContent = 'Reconnecting…';
+    sendSyncRequest();
+  }, 2000);
+  window.addEventListener('pagehide', () => clearInterval(heartbeat), { once: true });
+  sendSyncRequest();
 
   /**
    * Complete Grid and Scoreboard Redraw
@@ -530,7 +412,7 @@ onReady(() => {
   /**
    * Interactive Clue Display Modal
    */
-  function showClueOverlay(clue) {
+  function showClueOverlay(clue, playSound = true) {
     clearCountdown();
     buzzAlertEl.style.display = 'none';
     specialCardEl.style.display = 'none';
@@ -544,8 +426,8 @@ onReady(() => {
     }
     
     // Play sound cues
-    if (clue.isDailyDouble) {
-      gameAudio.playDailyDouble();
+    if (clue.isDailyDouble && gameState.clueStage === 'wager') {
+      if (playSound) gameAudio.playDailyDouble();
       
       // Render Daily Double wagering layout
       specialCardEl.style.display = 'block';
@@ -559,8 +441,14 @@ onReady(() => {
     }
     
     zoomOverlayEl.classList.add('active');
-    gameAudio.playSelect();
-    
+    if (playSound) gameAudio.playSelect();
+    if (clue.isDailyDouble) {
+      specialCardEl.style.display = 'block';
+      specialTitleEl.textContent = 'Daily Double';
+      specialPromptEl.textContent = 'Wager Placed:';
+      specialWagerEl.textContent = `$${gameState.currentWager}`;
+      specialWagerEl.style.display = 'block';
+    }
     // Render Clue Text
     clueTextEl.textContent = clue.question;
     
@@ -586,50 +474,6 @@ onReady(() => {
     }
   }
 
-  function revealWager(wager) {
-    specialPromptEl.textContent = 'Wager Placed:';
-    specialWagerEl.textContent = `$${wager}`;
-    specialWagerEl.style.display = 'block';
-    
-    // Reveal Daily Double clue after short visual reveal
-    setTimeout(() => {
-      if (gameState.currentClue) {
-        clueTextEl.textContent = gameState.currentClue.question;
-        
-        // Handle media inside Daily Double
-        if (gameState.currentClue.mediaType && gameState.currentClue.mediaType !== 'none' && gameState.currentClue.mediaUrl) {
-          mediaContainerEl.style.display = 'flex';
-          mediaContainerEl.innerHTML = '';
-          
-          if (gameState.currentClue.mediaType === 'image') {
-            const img = document.createElement('img');
-            img.alt = "Clue Asset";
-            img.decoding = "async";
-            img.style.transition = 'opacity 0.3s ease';
-            img.src = gameState.currentClue.mediaUrl;
-            if (img.complete) {
-              img.style.opacity = '1';
-            } else {
-              img.style.opacity = '0';
-              img.onload = () => { img.style.opacity = '1'; };
-              img.onerror = () => { img.style.opacity = '1'; };
-            }
-            mediaContainerEl.appendChild(img);
-          }
-        }
-      }
-    }, 2000);
-  }
-
-  function revealCorrectAnswer(answerText) {
-    const clueAnswerEl = document.getElementById('clue-answer-text');
-    if (clueAnswerEl) {
-      clueAnswerEl.textContent = answerText;
-      clueAnswerEl.style.display = 'inline-block';
-      gameAudio.playSelect();
-    }
-  }
-
   function hideClueOverlay() {
     zoomOverlayEl.classList.remove('active');
     buzzAlertEl.style.display = 'none';
@@ -646,12 +490,12 @@ onReady(() => {
   /**
    * Host Manual Buzzer Claims & Countdowns
    */
-  function triggerBuzzerClaim(teamId) {
+  function triggerBuzzerClaim(teamId, playSound = true) {
     const team = gameState.teams.find(t => t.id === teamId);
     if (!team) return;
     
     // Play Buzzer Audio
-    gameAudio.playBuzzer();
+    if (playSound) gameAudio.playBuzzer();
     
     // Open Alert Banner
     buzzTeamNameEl.textContent = team.name;
@@ -673,13 +517,14 @@ onReady(() => {
     clearCountdown();
     countdownDisplayEl.style.display = 'flex';
     
-    const duration = 5000; // 5-second limit
-    const start = performance.now();
+    const timer = gameState.timer;
+    if (!timer) return;
+    const duration = timer.duration;
     
     timerFillEl.className = 'timer-bar-fill';
     
     function tick(timestamp) {
-      const elapsed = timestamp - start;
+      const elapsed = duration - Math.max(0, timer.deadline - Date.now());
       const progress = Math.max(0, 1 - (elapsed / duration));
       
       timerFillEl.style.width = `${progress * 100}%`;
@@ -693,7 +538,7 @@ onReady(() => {
       } else {
         // Timer Expired: clear buzzer visual
         timerFillEl.style.width = '0%';
-        gameAudio.playIncorrect();
+        // Expiry is visual; the host decides the grade.
       }
     }
     

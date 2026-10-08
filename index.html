@@ -91,6 +91,7 @@
           Open Board Window
         </button>
 
+        <p id="host-connection-status" role="status">Board not connected</p>
         <h3 style="font-size: 14px; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 8px;">Scoreboards</h3>
         
         <!-- List of active teams for manual override -->
@@ -220,6 +221,7 @@
       <!-- Top Round Details header -->
       <header id="board-header" class="glass" style="padding: 16px 24px; display: flex; justify-content: space-between; align-items: center;">
         <h2 id="round-title">Trivia Board</h2>
+        <span id="connection-status" role="status">Connecting…</span>
         <div id="countdown-display" style="display: none; align-items: center; gap: 10px;">
           <span style="font-family: var(--font-family-header); font-weight: 700; color: var(--color-accent);">Time Remaining:</span>
           <div class="timer-bar-container">
