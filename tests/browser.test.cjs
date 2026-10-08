@@ -34,7 +34,7 @@ async function setup(csv = sample, options = {}) {
   const host = await context.newPage(), errors = [];
   context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
   host.on('pageerror', error => errors.push(error.message));
-  const entry = options.entry || 'index.html';
+  const entry = options.entry || process.env.TEST_ENTRY || 'index.html';
   await host.goto(options.file ? `file://${process.cwd()}/${entry}` : `${base}/${entry}`);
   await host.evaluate(() => { gameState.settings.soundEnabled = false; });
   await host.locator('#csv-upload').setInputFiles({ name: 'test.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
@@ -63,6 +63,7 @@ test('CSV markup is literal and duplicate values spend separately', () => withGa
     assert.equal(await board.locator('.category-title').textContent(), 'A <em>B</em>');
     assert.equal(await host.locator('.host-card-preview').first().textContent(), 'Compare <br> and <b>bold</b>');
     assert.equal(await host.locator('em').count(), 0);
+    assert.equal(await host.locator('.host-card-val').first().textContent(), '$200');
     await host.locator('.host-clue-card').first().click();
     await host.locator('#host-clue-skip-btn').click();
     assert.equal(await host.locator('.host-clue-card.spent').count(), 1);

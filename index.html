@@ -14,11 +14,11 @@
       const urlParams = new URLSearchParams(window.location.search);
       const isBoardFile = window.location.pathname.endsWith('board.html');
       const activeView = urlParams.get('view') || (isBoardFile ? 'board' : 'host');
-      
+
       function initView() {
         const hostRoot = document.getElementById('host-app-root');
         const boardRoot = document.getElementById('board-app-root');
-        
+
         if (activeView === 'board') {
           if (hostRoot) hostRoot.remove(); // Prune host console elements to prevent overhead
           if (boardRoot) boardRoot.style.display = 'block';
@@ -43,7 +43,7 @@
     <!-- 1. Setup Panel Overlay -->
     <div id="setup-container" class="setup-panel glass">
       <h1 style="text-align: center; margin-bottom: 24px; color: var(--color-accent);">Jeopardy Setup Console</h1>
-      
+
       <!-- Game Board File Upload -->
       <div class="form-group">
         <label for="csv-upload">Upload Game Board CSV</label>
@@ -81,11 +81,11 @@
 
     <!-- 2. Active Game Dashboard Layout -->
     <div id="active-game-container" style="display: none;" class="host-layout">
-      
+
       <!-- Left Sidebar: Teams & Adjusters -->
       <aside id="host-sidebar">
         <h2 style="font-size: 20px; color: var(--color-accent); margin-bottom: 16px;">Host Panel</h2>
-        
+
         <!-- Open Spectator Screen programmatic trigger -->
         <button class="btn btn-accent" id="open-board-btn" style="width: 100%; justify-content: center; margin-bottom: 16px;">
           Open Board Window
@@ -93,7 +93,7 @@
 
         <p id="host-connection-status" role="status">Board not connected</p>
         <h3 style="font-size: 14px; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 8px;">Scoreboards</h3>
-        
+
         <!-- List of active teams for manual override -->
         <div id="host-team-list" class="team-list-sidebar">
           <!-- Rendered dynamically -->
@@ -104,7 +104,7 @@
           <h3 style="font-size: 14px; text-transform: uppercase; color: var(--color-accent); margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
             ⚙️ Game Settings
           </h3>
-          
+
           <!-- Sound On/Off Switch -->
           <div class="form-group" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
             <span style="font-size: 13px; color: var(--color-text-muted);">Sound Effects</span>
@@ -112,7 +112,7 @@
               🔊 On
             </button>
           </div>
-          
+
           <!-- Clue Font Size Slider -->
           <div class="form-group" style="margin-bottom: 16px;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
@@ -121,7 +121,7 @@
             </div>
             <input type="range" id="host-font-scale-slider" min="1.0" max="1.8" step="0.2" value="1.0" style="width: 100%; cursor: pointer;">
           </div>
-          
+
           <!-- Collapsible Edit Teams Section -->
           <details class="glass" style="padding: 10px; border-radius: 8px; font-size: 13px; margin-bottom: 16px;">
             <summary style="cursor: pointer; color: var(--color-text-muted); font-weight: 600;">Edit Teams Mid-Game</summary>
@@ -140,7 +140,7 @@
 
       <!-- Main Board Console Area -->
       <main id="host-main">
-        
+
         <!-- Header Dashboard controllers -->
         <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-glass);">
           <h2 id="host-round-title" style="font-size: 24px; text-transform: uppercase;">Single Jeopardy</h2>
@@ -158,7 +158,7 @@
 
         <!-- Active Clue Host Control console -->
         <section id="host-clue-controller" class="host-control-drawer" style="display: none;">
-          
+
           <div class="host-question-display">
             <h4 id="controller-category" style="font-size: 14px; text-transform: uppercase; color: var(--color-accent); margin-bottom: 4px;">Category</h4>
             <p id="controller-question" style="font-size: 18px; font-weight: 500;">Active clue prompt displayed here...</p>
@@ -171,10 +171,10 @@
             <div style="display: flex; gap: 10px; align-items: center;">
               <label for="dd-team-select">Wagering Team:</label>
               <select id="dd-team-select" class="input-field" style="--input-width: auto; --input-pad: 6px 12px; --input-font: 14px; border-radius: 6px;"></select>
-              
+
               <label for="dd-wager-input">Wager Amount:</label>
               <input type="text" id="dd-wager-input" class="input-field" placeholder="$ amount" style="--input-width: 100px; --input-pad: 6px; --input-font: 12px; border-radius: 6px; text-align: center;">
-              
+
               <button class="btn btn-accent" id="dd-submit-wager-btn" style="padding: 6px 16px;">Set Wager</button>
             </div>
             <div id="dd-wager-error" style="color: var(--color-incorrect); font-size: 13px; margin-top: 8px; display: none;"></div>
@@ -217,7 +217,7 @@
   <!-- ==================== SPECTATOR BOARD SCREEN ==================== -->
   <div id="board-app-root" style="display: none;">
     <div id="board-container">
-      
+
       <!-- Top Round Details header -->
       <header id="board-header" class="glass" style="padding: 16px 24px; display: flex; justify-content: space-between; align-items: center;">
         <h2 id="round-title">Trivia Board</h2>
@@ -246,7 +246,7 @@
 
     <!-- Fullscreen Interactive Clue Zoom Overlay -->
     <div id="clue-zoom-overlay" class="clue-overlay">
-      
+
       <!-- Buzz in alert indicator -->
       <div id="buzz-alert" class="buzz-alert-overlay" style="display: none;">
         <span class="team-color-indicator" id="buzz-team-color"></span>
@@ -254,7 +254,7 @@
       </div>
 
       <div class="clue-zoom-content">
-        
+
         <!-- Daily Double / Final Jeopardy Card -->
         <div id="special-card" class="daily-double-card" style="display: none;">
           <h1 id="special-title" class="dd-title">Daily Double</h1>
@@ -275,7 +275,7 @@
 
       </div>
     </div>
-    
+
     <!-- Fullscreen Category Introduction Slide Overlay -->
     <div id="category-intro-overlay" class="clue-overlay" style="display: none;">
       <div class="clue-zoom-content">
