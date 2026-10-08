@@ -221,3 +221,9 @@ test('deck editor validates and exports changes; keyboard hosting works', () => 
   assert.equal(await host.locator('#edit-deck').isDisabled(), false);
   if (process.env.QA_HOST_SCREENSHOT) await host.screenshot({ path: process.env.QA_HOST_SCREENSHOT });
 }));
+test('missing clue images produce a readable offline fallback', () => withGame(
+  header + 'single,Image,200,Q,A,FALSE,image,missing-asset.png', {}, async game => {
+    const board = await openBoard(game); await game.host.locator('.host-clue-card').click();
+    await board.waitForFunction(() => document.getElementById('clue-media').textContent.includes('Image unavailable'));
+  }
+));

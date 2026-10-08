@@ -128,3 +128,38 @@ test('deck edits preserve identities and spent state, validate changes, and expo
   assert.equal(imported.singleJeopardy.categories[0].clues[1].question, 'Literal <b>text</b>\nNext line');
   assert.equal(e.parseSessionBackup(e.exportSessionBackup()).spentClues[0], id);
 });
+test('CRLF diagnostics and legacy session migration remain valid', () => {
+  const e = engine();
+  assert.throws(() => e.processCSVDeck((header + row + '\n' + row.replace('200','oops')).replaceAll('\n','\r\n')), /Line 3/);
+  const deck = e.processCSVDeck(header + row + '\nfinal,Final,,Q,A,FALSE,none,');
+  delete deck.id; delete deck.singleJeopardy.categories[0].id;
+  const clue = deck.singleJeopardy.categories[0].clues[0]; delete clue.id;
+  delete deck.finalJeopardy.value; delete deck.finalJeopardy.isDailyDouble; delete deck.finalJeopardy.id;
+  e.localStorage.setItem('jeopardy_local_state', JSON.stringify({ deck, teams:[{id:1,name:'A',color:'#112233',score:200},{id:2,name:'B',color:'#aabbcc',score:0}],
+    gamePhase:'single_jeopardy', spentClues:['single_jeopardy-Science-200'], currentClue:null, currentWager:null, activeBuzzedTeamId:null, categoryIntroIndex:null, settings:{soundEnabled:false,clueFontSizeMultiplier:1} }));
+  assert.equal(e.loadStateFromStorage(), true);
+  assert.equal(vm.runInContext('gameState.spentClues[0] === gameState.deck.singleJeopardy.categories[0].clues[0].id', e), true);
+});
+test('legacy decomposed Unicode titles retain their spent state after normalization', () => {
+  const e = engine();
+  const deck = e.processCSVDeck(header + row);
+  deck.singleJeopardy.categories[0].name = 'Cafe\u0301';
+  deck.singleJeopardy.categories[0].clues[0].category = 'Cafe\u0301';
+  e.localStorage.setItem('jeopardy_local_state', JSON.stringify({ deck, teams:[], gamePhase:'setup', spentClues:['single_jeopardy-Cafe\u0301-200'] }));
+  assert.equal(e.loadStateFromStorage(), true);
+  assert.equal(vm.runInContext('gameState.deck.singleJeopardy.categories[0].name', e), 'Café');
+  assert.equal(vm.runInContext('gameState.spentClues.length', e), 1);
+});
+test('Final music schedules the configured duration with one oscillator', () => {
+  const e = engine(), stops = []; let oscillators = 0;
+  const param = () => ({ setValueAtTime() {}, exponentialRampToValueAtTime() {} });
+  e.window = { AudioContext: class {
+    constructor() { this.state = 'running'; this.currentTime = 100; this.destination = {}; }
+    createOscillator() { oscillators++; return { frequency:param(), connect(){}, disconnect(){}, start(){}, stop(time){stops.push(time);} }; }
+    createGain() { return { gain:param(), connect(){}, disconnect(){} }; }
+  } };
+  vm.runInContext(fs.readFileSync('src/js/audio.js', 'utf8'), e);
+  vm.runInContext('gameAudio.playFinalJeopardy(10)', e);
+  assert.equal(oscillators, 1);
+  assert.equal(stops[0], 110.8);
+});

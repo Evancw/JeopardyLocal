@@ -59,7 +59,7 @@ function isHostView() {
   return new URLSearchParams(window.location.search).get('view') !== 'board' && !window.location.pathname.endsWith('board.html');
 }
 
-let savedDeckId = null, settingsSaveTimer = null;
+let savedDeckId = null, savedHistoryGeneration = null, settingsSaveTimer = null;
 function saveStateToStorage() {
   if (!isHostView()) return;
   clearTimeout(settingsSaveTimer);
@@ -71,7 +71,12 @@ function saveStateToStorage() {
       localStorage.setItem(`jeopardy_deck:${gameState.deck.id}`, JSON.stringify(gameState.deck));
       savedDeckId = gameState.deck.id;
     }
-    const snapshot = { ...stateSnapshot(false, true), deckId: gameState.deck.id };
+    const historyKey = `${STORAGE_KEY}:history:${gameState.sessionId}`;
+    if (savedHistoryGeneration !== historyGeneration) {
+      localStorage.setItem(historyKey, JSON.stringify({ undoStack: gameState.undoStack, redoStack: gameState.redoStack, scoreEvents: gameState.scoreEvents }));
+      savedHistoryGeneration = historyGeneration;
+    }
+    const snapshot = { ...stateSnapshot(), deckId: gameState.deck.id, historyKey };
     const state = JSON.stringify(snapshot);
     localStorage.setItem(STORAGE_KEY, state);
     localStorage.setItem(`${STORAGE_KEY}:${gameState.sessionId}`, state);
@@ -91,6 +96,7 @@ function scheduleSettingsSave() {
 if (typeof window !== 'undefined' && isHostView()) window.addEventListener('pagehide', saveStateToStorage);
 
 function loadStateFromStorage() {
+  const previous = { ...gameState };
   try {
     const session = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('session');
     const stored = localStorage.getItem(session ? `${STORAGE_KEY}:${session}` : STORAGE_KEY);
@@ -98,8 +104,17 @@ function loadStateFromStorage() {
       const parsed = JSON.parse(stored);
       if (!parsed.deck && parsed.deckId) parsed.deck = JSON.parse(localStorage.getItem(`jeopardy_deck:${parsed.deckId}`) || 'null');
       if (!parsed.deck?.singleJeopardy?.categories || !parsed.deck?.doubleJeopardy?.categories || !Array.isArray(parsed.teams)) return false;
+      if (parsed.historyKey === `${STORAGE_KEY}:history:${parsed.sessionId}`) {
+        const history = JSON.parse(localStorage.getItem(parsed.historyKey) || '{}');
+        for (const key of ['undoStack', 'redoStack', 'scoreEvents']) if (Array.isArray(history[key])) parsed[key] = history[key];
+      }
+      ensureDeckIds(parsed.deck);
+      const storedSpent = parsed.spentClues || [];
+      parsed.spentClues = ['singleJeopardy', 'doubleJeopardy'].flatMap(round => parsed.deck[round].categories.flatMap(cat =>
+        cat.clues.filter(clue => storedSpent.includes(clue.id) || storedSpent.includes(`${round === 'singleJeopardy' ? 'single_jeopardy' : 'double_jeopardy'}-${cat.name}-${clue.value}`)).map(clue => clue.id)));
+      parsed.deck = validateBackupDeck(parsed.deck);
       const defaultSettings = gameState.settings;
-      Object.assign(gameState, parsed);
+      Object.assign(gameState, Object.fromEntries(Object.keys(gameState).filter(key => Object.hasOwn(parsed, key)).map(key => [key, parsed[key]])));
       gameState.settings = { ...defaultSettings, ...parsed.settings };
       ensureDeckIds(gameState.deck);
       const clues = ['singleJeopardy', 'doubleJeopardy'].flatMap(round =>
@@ -107,7 +122,7 @@ function loadStateFromStorage() {
       gameState.spentClues = clues.filter(({ clue, round }) => gameState.spentClues.includes(clue.id) ||
         gameState.spentClues.includes(`${round === 'singleJeopardy' ? 'single_jeopardy' : 'double_jeopardy'}-${clue.category}-${clue.value}`)).map(({ clue }) => clue.id);
       if (gameState.currentClue && !gameState.currentClue.id) {
-        gameState.currentClue = clues.find(({ clue }) => clue.category === gameState.currentClue.category &&
+        gameState.currentClue = clues.find(({ clue }) => categoryKey(clue.category) === categoryKey(gameState.currentClue.category) &&
           clue.question === gameState.currentClue.question)?.clue || null;
       }
       if (!parsed.clueStage) gameState.clueStage = gameState.currentClue ?
@@ -118,9 +133,20 @@ function loadStateFromStorage() {
           .map(t => ({ teamId: t.id, startingScore: t.score - (t.finalResult === 'correct' ? t.finalWager : t.finalResult === 'incorrect' ? -t.finalWager : 0) }));
         gameState.finalStage = gameState.teams.some(t => typeof t.finalWager === 'number') ? 'judging' : 'wager';
       }
+      if (gameState.gamePhase === 'final_jeopardy' && gameState.finalStage === 'judging' && !gameState.currentClue) {
+        gameState.currentClue = gameState.deck.finalJeopardy;
+        gameState.clueStage = 'answering';
+      }
+      if (gameState.teams.length) {
+        Object.assign(gameState, validateGameplay(gameState, gameState.deck));
+        gameState.undoStack = validateUndoHistory(gameState.undoStack, gameState.deck);
+        gameState.redoStack = validateUndoHistory(gameState.redoStack, gameState.deck);
+        gameState.scoreEvents = validateScoreEvents(gameState.scoreEvents, gameState.teams);
+      }
       return true;
     }
   } catch (e) {
+    Object.assign(gameState, previous);
     console.warn("localStorage load failed (blocked or disabled):", e);
   }
   return false;
@@ -142,6 +168,7 @@ function resetGameState() {
   gameState.categoryIntroIndex = null;
   gameState.gamePhase = 'setup';
   gameState.undoStack = []; gameState.redoStack = []; gameState.scoreEvents = [];
+  historyGeneration++;
   saveStateToStorage();
 }
 
@@ -238,7 +265,7 @@ function applyFinalGrade(teamId, result) {
   if (gameState.gamePhase !== 'final_jeopardy' || !['correct', 'incorrect'].includes(result) || gameState.finalStage !== 'judging') return false;
   const participant = gameState.finalParticipants.find(p => p.teamId === teamId);
   const team = gameState.teams.find(t => t.id === teamId);
-  if (!participant || !team || !Number.isSafeInteger(team.finalWager)) return false;
+  if (!participant || !team || !Number.isSafeInteger(team.finalWager) || team.finalResult === result) return false;
   const previous = team.finalResult === 'correct' ? team.finalWager : team.finalResult === 'incorrect' ? -team.finalWager : 0;
   const score = team.score + (result === 'correct' ? team.finalWager : -team.finalWager) - previous;
   if (!Number.isSafeInteger(score)) return false;

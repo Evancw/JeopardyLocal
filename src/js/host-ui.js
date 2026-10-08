@@ -1221,6 +1221,7 @@ onReady(() => {
       const restored = parseSessionBackup(await file.text());
       if (restored.timer) { restored.timer.remaining = timerRemaining(restored.timer); restored.timer.paused = true; }
       Object.assign(gameState, restored);
+      historyGeneration++;
       saveStateToStorage(); broadcastState(true);
       if (gameState.gamePhase === 'setup') { activeGameContainer.style.display = 'none'; setupContainer.style.display = 'block'; renderTeamSetupInputs(); startGameBtn.disabled = false; }
       else { launchActiveDashboard(); initSettingsUI(); }
@@ -1259,7 +1260,11 @@ onReady(() => {
   initDeckEditor(() => {
     saveStateToStorage(); broadcastState(true);
     if (gameState.gamePhase !== 'setup') renderActiveGameUI();
-    else { uploadStatus.textContent = `Edited deck: ${gameState.deckName || 'game board'}`; startGameBtn.disabled = false; }
+    else {
+      uploadStatus.textContent = `Edited deck: ${gameState.deckName || 'game board'}`;
+      document.getElementById('import-details').textContent = deckClues().map(({ clue }) => `${clue.category} · $${clue.value} · ${clue.question}`).join('\n');
+      startGameBtn.disabled = false;
+    }
   });
   hostClueGrid.addEventListener('keydown', event => {
     if (['Enter', ' '].includes(event.key) && event.target.classList.contains('host-clue-card')) { event.preventDefault(); event.target.click(); }

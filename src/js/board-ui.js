@@ -39,7 +39,6 @@ onReady(() => {
   const countdownDisplayEl = document.getElementById('countdown-display');
   const timerFillEl = document.getElementById('timer-fill');
   let countdownTimerId = null;
-  let hasPlayedVictoryFanfare = false;
   let hasRenderedWinnerReveal = false;
   const preloadedImageUrls = new Set();
   let preloadKey = '', imageQueue = [], activeImageLoads = 0;
@@ -106,7 +105,7 @@ onReady(() => {
     const spentChanged = previousSpent !== JSON.stringify(gameState.spentClues);
     if (previousSettings !== JSON.stringify(gameState.settings)) applySyncSettings();
     if (prevDeck !== gameState.deck.id || prevPhase !== gameState.gamePhase || spentChanged) preloadDeckImages();
-    if (gameState.gamePhase === 'setup') { hasPlayedVictoryFanfare = false; hasRenderedWinnerReveal = false; }
+    if (gameState.gamePhase === 'setup') { hasRenderedWinnerReveal = false; }
     if (prevPhase !== gameState.gamePhase || prevDeck !== gameState.deck.id || !gridEl.hasChildNodes() || (gameState.gamePhase === 'completed' && teamsChanged)) renderCompleteBoard();
     else { if (teamsChanged) renderScoreboard(); if (spentChanged) updateClueCardStates(); }
     if (prevIntro !== gameState.categoryIntroIndex || prevPhase !== gameState.gamePhase || prevDeck !== gameState.deck.id) renderCategoryIntroductions();
@@ -441,7 +440,6 @@ onReady(() => {
       clueTextEl.textContent = ''; // Hide question until wager set
       
       zoomOverlayEl.classList.add('active');
-    zoomOverlayEl.setAttribute('aria-hidden', 'false');
       zoomOverlayEl.setAttribute('aria-hidden', 'false');
       return;
     }
@@ -468,14 +466,14 @@ onReady(() => {
         img.alt = "Clue Asset";
         img.decoding = "async";
         img.style.transition = 'opacity 0.3s ease';
+        img.onload = () => { img.style.opacity = '1'; };
+        img.onerror = () => {
+          const error = document.createElement('p');
+          error.textContent = 'Image unavailable. Check the media file or connection.';
+          img.replaceWith(error);
+        };
         img.src = clue.mediaUrl;
-        if (img.complete) {
-          img.style.opacity = '1';
-        } else {
-          img.style.opacity = '0';
-          img.onload = () => { img.style.opacity = '1'; };
-          img.onerror = () => { const error = document.createElement('p'); error.textContent = 'Image unavailable. Check the media file or connection.'; img.replaceWith(error); };
-        }
+        img.style.opacity = img.complete && img.naturalWidth ? '1' : '0';
         mediaContainerEl.appendChild(img);
       }
     }

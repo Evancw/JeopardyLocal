@@ -69,6 +69,7 @@ function deckFingerprint(deck) {
 }
 
 function ensureDeckIds(deck) {
+  if (deck.finalJeopardy) { deck.finalJeopardy.value ??= 0; deck.finalJeopardy.isDailyDouble ??= false; }
   deck.id ||= deckFingerprint(deck);
   ['singleJeopardy', 'doubleJeopardy'].forEach((round, roundIndex) => {
     deck[round].categories.forEach((category, categoryIndex) => {
@@ -111,11 +112,12 @@ function processCSVDeck(csvText, options = {}) {
     const value = round === 'final' ? 0 : parsePoints(fields.value ?? '');
     if (value === null) issues.push(`${label}: Value must be a positive whole number (200 or "$1,000").`);
     const flag = (fields.isdailydouble || 'FALSE').toUpperCase();
+    if (round === 'final' && flag === 'TRUE') issues.push(`${label}: Final clues cannot be Daily Doubles.`);
     if (!['TRUE', 'FALSE'].includes(flag)) issues.push(`${label}: IsDailyDouble must be TRUE or FALSE.`);
     const mediaType = (fields.mediatype || 'none').toLowerCase();
     if (!['none', 'image'].includes(mediaType)) issues.push(`${label}: MediaType must be none or image.`);
     if (mediaType === 'image' && !fields.mediaurl) issues.push(`${label}: an image needs MediaURL.`);
-    if (fields.mediaurl && /^(?:javascript|vbscript|data:text\/html):/i.test(fields.mediaurl)) issues.push(`${label}: unsupported media URL.`);
+    if (fields.mediaurl && /^(?:javascript|vbscript):|^data:(?!image\/)/i.test(fields.mediaurl)) issues.push(`${label}: unsupported media URL.`);
     if (round === 'final' && deck.finalJeopardy) issues.push(`${label}: only one Final clue is supported.`);
     if (issues.length !== before) return;
     const clue = { category: fields.category, value, question: fields.question, answer: fields.answer,

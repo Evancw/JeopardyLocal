@@ -1,4 +1,5 @@
 /* Undo history and portable, validated session backups. */
+let historyGeneration = 0;
 const GAMEPLAY_FIELDS = ['teams', 'currentClue', 'currentWager', 'activeBuzzedTeamId', 'spentClues', 'gamePhase',
   'categoryIntroIndex', 'lockedOutTeamIds', 'wageringTeamId', 'clueStage', 'answerVisible', 'finalParticipants', 'finalStage', 'timer'];
 
@@ -20,6 +21,7 @@ function recordGameChange(label, change) {
 }
 
 function appendScoreEvent(label) {
+  historyGeneration++;
   gameState.scoreEvents.push({ time: new Date().toISOString(), label,
     scores: gameState.teams.map(team => ({ teamId: team.id, score: team.score })) });
   gameState.scoreEvents = gameState.scoreEvents.slice(-500);
@@ -159,17 +161,10 @@ function parseSessionBackup(text) {
   if (!settings || !Number.isFinite(settings.clueFontSizeMultiplier) || settings.clueFontSizeMultiplier < 0.6 || settings.clueFontSizeMultiplier > 1.8 ||
     !Number.isInteger(settings.responseSeconds) || settings.responseSeconds < 1 || settings.responseSeconds > 120 ||
     !Number.isInteger(settings.finalSeconds) || settings.finalSeconds < 1 || settings.finalSeconds > 120 || typeof settings.soundEnabled !== 'boolean') throw new Error('Invalid settings in backup.');
-  const history = key => {
-    if (!Array.isArray(source[key]) || source[key].length > 50) throw new Error('Invalid undo history.');
-    return source[key].map(entry => {
-      if (typeof entry.label !== 'string') throw new Error('Invalid history label.');
-      return { label: entry.label, before: validateGameplay(entry.before, deck), after: validateGameplay(entry.after, deck) };
-    });
-  };
   return { ...gameplay, deck, deckName: typeof source.deckName === 'string' ? source.deckName : 'Restored deck',
     settings: { clueFontSizeMultiplier: settings.clueFontSizeMultiplier, responseSeconds: settings.responseSeconds,
       finalSeconds: settings.finalSeconds, soundEnabled: settings.soundEnabled, lowEffects: Boolean(settings.lowEffects) },
-    undoStack: history('undoStack'), redoStack: history('redoStack'), scoreEvents: validateScoreEvents(source.scoreEvents, gameplay.teams) };
+    undoStack: validateUndoHistory(source.undoStack, deck), redoStack: validateUndoHistory(source.redoStack, deck), scoreEvents: validateScoreEvents(source.scoreEvents, gameplay.teams) };
 }
 
 function validateScoreEvents(events, teams) {
@@ -180,5 +175,13 @@ function validateScoreEvents(events, teams) {
       !Array.isArray(event.scores) || event.scores.length !== teams.length || new Set(event.scores.map(s => s.teamId)).size !== teams.length ||
       event.scores.some(score => !ids.has(score.teamId) || !Number.isSafeInteger(score.score))) throw new Error('Invalid score event.');
     return { time: event.time, label: event.label, scores: event.scores.map(s => ({ teamId: s.teamId, score: s.score })) };
+  });
+}
+
+function validateUndoHistory(entries, deck) {
+  if (!Array.isArray(entries) || entries.length > 50) throw new Error('Invalid undo history.');
+  return entries.map(entry => {
+    if (typeof entry.label !== 'string') throw new Error('Invalid history label.');
+    return { label: entry.label, before: validateGameplay(entry.before, deck), after: validateGameplay(entry.after, deck) };
   });
 }
