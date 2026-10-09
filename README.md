@@ -12,15 +12,18 @@ See [implementation and verification](docs/IMPLEMENTATION.md) for the reviewable
 
 See [source refactors and measured size reductions](docs/CODE_SIZE_REDUCTIONS_2026-10-09.md) for the subsequent five cleanup commits and regression results.
 
+See [build optimizations and release verification](docs/BUILD_OPTIMIZATION_2026-10-09.md) for the current **37,306-byte** standalone release, reduced by **31.6%** with every feature retained.
+
 The source of both screens is `index.html`. `host.html` and `board.html` are generated compatibility entry points; edit the shared template and regenerate them.
 
-Build with Node:
+Build with Node 18 or newer. Install the pinned development tools once:
 
 ```sh
-node scratch/build.js
+npm ci
+npm run build
 ```
 
-This generates the standalone `dist/jeopardy_all_in_one.html` and both split pages. The standalone edition uses native browser decompression. For browsers without it, open the source entry point or build an uncompressed single file:
+This generates the standalone `dist/jeopardy_all_in_one.html` and both split pages. The build minifies HTML/CSS/JavaScript, combines application scripts, and packages stronger gzip with a validated Base85 payload. The tools are development dependencies only; gameplay remains offline and needs no installation. The standalone edition uses native browser decompression. For browsers without it, open the source entry point or build a readable uncompressed single file (this option needs only Node):
 
 ```sh
 node scratch/build.js --plain
@@ -29,7 +32,8 @@ node scratch/build.js --plain
 Run core and packaging regressions:
 
 ```sh
-node --test tests/core.test.cjs tests/build.test.cjs
+npm test
+npm run test:package-core
 ```
 
 Browser checks require Playwright and Chrome as development tools, with no gameplay dependencies:
