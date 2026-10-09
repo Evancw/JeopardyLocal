@@ -1,0 +1,17 @@
+{
+  "name": "local-jeopardy",
+  "private": true,
+  "scripts": {
+    "build": "node scratch/build.js",
+    "build:plain": "node scratch/build.js --plain",
+    "test": "node --test tests/core.test.cjs tests/build.test.cjs",
+    "test:browser": "node --test tests/browser.test.cjs"
+  },
+  "engines": { "node": ">=18" },
+  "devDependencies": {
+    "@gfx/zopfli": "1.0.15",
+    "clean-css": "5.3.3",
+    "html-minifier-terser": "7.2.0",
+    "terser": "5.51.2"
+  }
+}
