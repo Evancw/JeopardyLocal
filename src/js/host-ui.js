@@ -3,14 +3,6 @@
  * Coordinates inputs, CSV loading, dual-screen window launching, judging, and synchronization.
  */
 
-function onReady(fn) {
-  if (document.readyState !== 'loading') {
-    fn();
-  } else {
-    document.addEventListener('DOMContentLoaded', fn);
-  }
-}
-
 onReady(() => {
   const urlParams = new URLSearchParams(window.location.search);
   const isHostFile = window.location.pathname.endsWith('host.html');
@@ -29,7 +21,6 @@ onReady(() => {
 
   // Elements - Active Dashboard
   const activeGameContainer = document.getElementById('active-game-container');
-  const hostSidebar = document.getElementById('host-sidebar');
   const hostTeamList = document.getElementById('host-team-list');
   const hostRoundTitle = document.getElementById('host-round-title');
   const hostClueGrid = document.getElementById('host-clue-grid');
@@ -65,37 +56,10 @@ onReady(() => {
   const btnGotoComplete = document.getElementById('btn-goto-complete');
 
   // Active state tracks for multiple wrong answers
-  let disabledBuzzers = [];
+
 
   function getMaxClueValueOfRound() {
-    let maxVal = 0;
-    try {
-      const isDouble = gameState.gamePhase === 'double_jeopardy';
-      const categories = isDouble ? 
-        gameState.deck?.doubleJeopardy?.categories : gameState.deck?.singleJeopardy?.categories;
-      
-      if (categories && Array.isArray(categories)) {
-        categories.forEach(cat => {
-          if (cat && cat.clues && Array.isArray(cat.clues)) {
-            cat.clues.forEach(clue => {
-              if (clue && typeof clue.value === 'number') {
-                if (clue.value > maxVal) {
-                  maxVal = clue.value;
-                }
-              }
-            });
-          }
-        });
-      }
-    } catch (e) {
-      console.warn("Could not calculate max clue value from deck:", e);
-    }
-    
-    // Fallback values if none loaded/found
-    if (maxVal === 0) {
-      maxVal = gameState.gamePhase === 'double_jeopardy' ? 2000 : 1000;
-    }
-    return maxVal;
+    return maxRoundClueValue() || (gameState.gamePhase === 'double_jeopardy' ? 2000 : 1000);
   }
 
   // Check if session can be recovered from storage immediately
@@ -127,6 +91,12 @@ onReady(() => {
     }
     
     const settings = gameState.settings;
+    for (const [id, key] of [['response-seconds', 'responseSeconds'], ['final-seconds', 'finalSeconds']]) {
+      const input = document.getElementById(id); if (input) input.value = settings[key];
+    }
+    const effects = document.getElementById('low-effects');
+    if (effects) effects.checked = settings.lowEffects;
+    document.documentElement.classList.toggle('effects-simple', Boolean(settings.lowEffects));
     
     if (soundBtn) {
       soundBtn.textContent = settings.soundEnabled ? '🔊 On' : '🔇 Off';
@@ -159,21 +129,14 @@ onReady(() => {
     
     gameState.teams.forEach((team, index) => {
       const row = document.createElement('div');
-      row.style.display = 'flex';
-      row.style.flexDirection = 'column';
-      row.style.gap = '6px';
-      row.style.padding = '8px';
-      row.style.borderRadius = '6px';
-      row.style.background = 'rgba(255, 255, 255, 0.03)';
-      row.style.border = '1px solid var(--border-glass)';
       
       row.innerHTML = `
-        <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div class="host-team-card-header">
           <span style="font-weight: bold; color: var(--color-accent);">Team ${index + 1}</span>
         </div>
         <div style="display: flex; gap: 8px;">
-          <input type="text" class="team-name-edit-input input-field" data-id="${team.id}" value="${team.name}" style="--input-pad: 4px 8px; --input-font: 12px; border-radius: 4px; flex: 1;">
-          <input type="color" class="team-color-edit-input input-field" data-id="${team.id}" value="${team.color}" style="--input-width: 32px; --input-pad: 0; border-radius: 4px; height: 26px; background: none; cursor: pointer;">
+          <input type="text" class="team-name-edit-input input-field" data-id="${team.id}" value="${escapeHTML(team.name)}">
+          <input type="color" class="team-color-edit-input input-field" data-id="${team.id}" value="${escapeHTML(team.color)}">
         </div>
       `;
       
@@ -183,8 +146,7 @@ onReady(() => {
       const updateTeam = () => {
         team.name = nameInput.value.trim() || `Team ${index + 1}`;
         team.color = colorInput.value;
-        saveStateToStorage();
-        broadcastState();
+        publishChange('SYNC_STATE', null, true);
         renderSidebarScoreboards();
       };
       
@@ -195,45 +157,31 @@ onReady(() => {
     });
   }
 
-  // --- Broadcast Channel sync request listener ---
-  if (broadcastChannel) {
-    broadcastChannel.onmessage = (event) => {
-      const { action, payload } = event.data;
-      if (action === 'SYNC_REQUEST') {
-        console.log("Sync requested by spectator screen via BroadcastChannel. Broadcasting state...");
-        broadcastState();
-      } else if (action === 'SYNC_STATE' && payload && payload.state) {
-        // Bi-directional state sync (e.g. from spectator sound toggle)
-        if (payload.state.settings) {
-          Object.assign(gameState.settings, payload.state.settings);
-          initSettingsUI();
-        }
-      }
-    };
+  let lastBoardContact = 0;
+  const connectionStatus = document.getElementById('host-connection-status');
+  const healthTimer = setInterval(() => {
+    if (connectionStatus && lastBoardContact && Date.now() - lastBoardContact > 6000) connectionStatus.textContent = 'Board disconnected · open board to reconnect';
+  }, 3000);
+  window.addEventListener('pagehide', () => clearInterval(healthTimer), { once: true });
+  function receiveBoardRequest(message, source = null) {
+    if (message?.protocol !== 1 || message.role !== 'board' || message.action !== 'SYNC_REQUEST') return;
+    if (message.sessionId && message.sessionId !== gameState.sessionId) return;
+    if (source) directWindows.add(source);
+    lastBoardContact = Date.now();
+    if (connectionStatus) connectionStatus.textContent = 'Board connected';
+    broadcastState(message.initial || message.deckId !== gameState.deck.id);
+  }
+  if (broadcastChannel) broadcastChannel.onmessage = event => receiveBoardRequest(event.data);
+  window.addEventListener('message', event => {
+    if (trustedWindowMessage(event)) receiveBoardRequest(event.data, event.source);
+  });
+  function broadcastState(fullSnapshot = false) {
+    broadcastAction('SYNC_STATE', { fullSnapshot });
   }
 
-  // Direct Window message listener for offline file:// fallback
-  window.addEventListener('message', (event) => {
-    const { action, payload } = event.data || {};
-    if (action === 'SYNC_REQUEST') {
-      console.log("Sync requested by spectator screen via window message. Registering window...");
-      if (event.source) {
-        directWindows.add(event.source);
-      }
-      broadcastState();
-    } else if (action === 'SYNC_STATE' && payload && payload.state) {
-      // Bi-directional state sync (e.g. from spectator sound toggle)
-      if (payload.state.settings) {
-        Object.assign(gameState.settings, payload.state.settings);
-        initSettingsUI();
-      }
-    }
-  });
-
-  function broadcastState() {
-    const syncPayload = { ...gameState };
-    delete syncPayload.deck;
-    broadcastAction('SYNC_STATE', { state: syncPayload });
+  function publishChange(action = 'SYNC_STATE', payload = null, delayed = false) {
+    (delayed ? scheduleSettingsSave : saveStateToStorage)();
+    broadcastAction(action, payload);
   }
 
   // Wire settings element event listeners
@@ -246,8 +194,7 @@ onReady(() => {
       if (!gameState.settings) gameState.settings = {};
       gameState.settings.soundEnabled = !gameState.settings.soundEnabled;
       
-      saveStateToStorage();
-      broadcastState();
+      publishChange();
       initSettingsUI();
     });
   }
@@ -262,10 +209,48 @@ onReady(() => {
         fontScaleDisplay.textContent = Math.round(val * 100) + '%';
       }
       
-      saveStateToStorage();
-      broadcastState();
+      publishChange('SYNC_STATE', null, true);
     });
   }
+
+  const lowEffects = document.getElementById('low-effects');
+  if (lowEffects) {
+    lowEffects.checked = gameState.settings.lowEffects;
+    lowEffects.addEventListener('change', () => {
+      gameState.settings.lowEffects = lowEffects.checked;
+      document.documentElement.classList.toggle('effects-simple', lowEffects.checked);
+      publishChange('SYNC_STATE', null, true);
+    });
+    document.documentElement.classList.toggle('effects-simple', lowEffects.checked);
+  }
+  ['responseSeconds', 'finalSeconds'].forEach(setting => {
+    const input = document.getElementById(setting === 'responseSeconds' ? 'response-seconds' : 'final-seconds');
+    if (!input) return;
+    input.value = gameState.settings[setting];
+    input.addEventListener('change', () => {
+      const seconds = parsePoints(input.value);
+      if (seconds === null || seconds > 120) {
+        input.value = gameState.settings[setting];
+        document.getElementById('host-timer-status').textContent = 'Choose 1–120 seconds.';
+        return;
+      }
+      gameState.settings[setting] = seconds;
+      publishChange();
+    });
+  });
+  const timerToggle = document.getElementById('timer-toggle');
+  timerToggle?.addEventListener('click', () => {
+    if (!toggleGameTimer()) return;
+    publishChange(gameState.timer.paused ? 'PAUSE_TIMER' : 'RESUME_TIMER');
+  });
+  const timerDisplayInterval = setInterval(() => {
+    const timer = gameState.timer;
+    const remaining = timerRemaining();
+    const status = document.getElementById('host-timer-status');
+    if (timerToggle) { timerToggle.disabled = !timer || !remaining; timerToggle.textContent = timer?.paused ? 'Resume timer' : 'Pause timer'; }
+    if (status) status.textContent = timer ? `${timer.paused ? 'Paused · ' : ''}${Math.ceil(remaining / 1000)} seconds` : 'Timer ready';
+  }, 250);
+  window.addEventListener('pagehide', () => clearInterval(timerDisplayInterval), { once: true });
 
   // Initialize Settings UI values
   initSettingsUI();
@@ -275,31 +260,49 @@ onReady(() => {
   // Trigger File Dialog on button click
   csvUploadTrigger.addEventListener('click', () => csvUploadInput.click());
 
-  csvUploadInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
+  let importSequence = 0;
+  function readDeckFile() {
+    const file = csvUploadInput.files[0];
     if (!file) return;
-
+    const sequence = ++importSequence;
+    startGameBtn.disabled = true;
+    const details = document.getElementById('import-details');
+    const report = document.getElementById('import-report');
+    const fail = message => {
+      uploadStatus.textContent = 'Import failed. Correct the issues below and try again.';
+      uploadStatus.style.color = 'var(--color-incorrect)';
+      if (details) details.textContent = message;
+      if (report) { report.hidden = false; report.open = true; }
+    };
+    if (file.size > 2 * 1024 * 1024) { fail('File exceeds the 2 MB limit.'); return; }
     uploadStatus.textContent = `Reading ${file.name}...`;
-    
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onerror = () => { if (sequence === importSequence) fail('The file could not be read. Please choose it again.'); };
+    reader.onload = event => {
+      if (sequence !== importSequence) return;
       try {
-        const deck = processCSVDeck(event.target.result);
+        const separator = document.getElementById('csv-delimiter')?.value;
+        const deck = processCSVDeck(event.target.result, { delimiter: separator === 'tab' ? '\t' : separator });
         gameState.deck = deck;
         gameState.deckName = file.name;
         saveStateToStorage();
-        uploadStatus.textContent = `Success! Loaded: ${file.name}`;
+        uploadStatus.textContent = `Success! Loaded ${deck.importSummary.count} clues: ${file.name}`;
         uploadStatus.style.color = 'var(--color-correct)';
+        const lines = ['singleJeopardy', 'doubleJeopardy'].flatMap(round => deck[round].categories.map(cat =>
+          `${round === 'singleJeopardy' ? 'Single' : 'Double'} · ${cat.name}: ${cat.clues.length} clues ($${cat.clues.map(c => c.value).join(', $')})`));
+        if (deck.finalJeopardy) lines.push(`Final · ${deck.finalJeopardy.category}`);
+        lines.push(...deck.importSummary.warnings);
+        if (details) details.textContent = lines.join('\n');
+        if (report) { report.hidden = false; report.open = deck.importSummary.warnings.length > 0; }
         startGameBtn.disabled = false;
-      } catch (err) {
-        console.error(err);
-        uploadStatus.textContent = `Error: ${err.message}`;
-        uploadStatus.style.color = 'var(--color-incorrect)';
-        startGameBtn.disabled = true;
-      }
+        refreshEditorButtons();
+      } catch (error) { fail(error.message); }
     };
-    reader.readAsText(file);
-  });
+    reader.readAsText(file, document.getElementById('csv-encoding')?.value || 'utf-8');
+  }
+  csvUploadInput.addEventListener('change', readDeckFile);
+  document.getElementById('csv-encoding')?.addEventListener('change', readDeckFile);
+  document.getElementById('csv-delimiter')?.addEventListener('change', readDeckFile);
 
   // Render dynamic team rows based on selection
   teamsCountSelect.addEventListener('change', renderTeamSetupInputs);
@@ -336,8 +339,8 @@ onReady(() => {
 
       row.innerHTML = `
         <span style="font-weight: 700; color: var(--color-text-muted); font-size: 14px;">T${i+1}:</span>
-        <input type="text" class="team-name-input" placeholder="Team ${i+1} Name" value="${nameVal}" style="flex-grow: 1;">
-        <input type="color" class="team-color-input" value="${colorVal}" style="width: 50px; height: 42px; padding: 2px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 8px; cursor: pointer;">
+        <input type="text" class="team-name-input" placeholder="Team ${i+1} Name" value="${escapeHTML(nameVal)}" style="flex-grow: 1;">
+        <input type="color" class="team-color-input" value="${escapeHTML(colorVal)}" style="width: 50px; height: 42px; padding: 2px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 8px; cursor: pointer;">
       `;
       teamSetupRows.appendChild(row);
     }
@@ -355,8 +358,7 @@ onReady(() => {
       color: colors[index]
     }));
 
-    gameState.gamePhase = 'single_jeopardy';
-    gameState.categoryIntroIndex = 0;
+    beginRound(availablePhases()[0]);
     
     // Purge active session state for a pristine start
     gameState.spentClues = [];
@@ -364,8 +366,7 @@ onReady(() => {
     gameState.currentWager = null;
     gameState.activeBuzzedTeamId = null;
 
-    saveStateToStorage();
-    broadcastState();
+    publishChange();
     
     launchActiveDashboard();
   });
@@ -380,9 +381,11 @@ onReady(() => {
     renderPresenterGrid();
     renderRoundTransitions();
     renderEditTeamsPanel(); // Initialize dynamic edit rows mid-game
+    renderClueController();
   }
 
   function renderSidebarScoreboards() {
+    renderHistoryControls();
     hostTeamList.innerHTML = '';
     
     gameState.teams.forEach(team => {
@@ -391,8 +394,8 @@ onReady(() => {
       
       card.innerHTML = `
         <div class="host-team-card-header">
-          <span style="font-weight: 700;">${team.name}</span>
-          <span class="team-color-indicator" style="background-color: ${team.color};"></span>
+          <span style="font-weight: 700;">${escapeHTML(team.name)}</span>
+          <span class="team-color-indicator" style="background-color: ${escapeHTML(team.color)};"></span>
         </div>
         <div class="score-adjuster">
           <button class="score-minus-btn" data-id="${team.id}">-</button>
@@ -407,11 +410,11 @@ onReady(() => {
       
       const input = card.querySelector('.score-display-input');
       input.addEventListener('change', (e) => {
-        const val = parseInt(e.target.value, 10);
-        if (!isNaN(val)) {
-          team.score = val;
-          saveStateToStorage();
-          broadcastState();
+        const text = e.target.value.trim();
+        const val = /^-?\d+$/.test(text) ? Number(text) : NaN;
+        if (Number.isSafeInteger(val)) {
+          recordGameChange(`Set ${team.name}'s score`, () => { team.score = val; return true; });
+          publishChange();
           renderSidebarScoreboards();
         }
       });
@@ -423,14 +426,15 @@ onReady(() => {
   function adjustTeamScore(teamId, delta) {
     const team = gameState.teams.find(t => t.id === teamId);
     if (team) {
-      team.score += delta;
-      saveStateToStorage();
-      broadcastState();
+      if (!Number.isSafeInteger(team.score + delta)) return;
+      recordGameChange(`Adjust ${team.name}'s score`, () => { team.score += delta; return true; });
+      publishChange();
       renderSidebarScoreboards();
     }
   }
 
   function renderRoundTransitions() {
+    refreshEditorButtons();
     const titles = {
       'single_jeopardy': 'Single Jeopardy',
       'double_jeopardy': 'Double Jeopardy',
@@ -443,13 +447,12 @@ onReady(() => {
     btnGotoFinal.style.display = 'none';
     btnGotoComplete.style.display = 'none';
 
-    if (gameState.gamePhase === 'single_jeopardy') {
-      btnGotoDouble.style.display = 'block';
-    } else if (gameState.gamePhase === 'double_jeopardy') {
-      btnGotoFinal.style.display = 'block';
-    } else if (gameState.gamePhase === 'final_jeopardy') {
-      btnGotoComplete.style.display = 'block';
-    }
+    const next = nextGamePhase();
+    const button = next === 'double_jeopardy' ? btnGotoDouble : next === 'final_jeopardy' ? btnGotoFinal : btnGotoComplete;
+    button.style.display = 'block';
+    button.disabled = Boolean(gameState.currentClue && gameState.gamePhase !== 'final_jeopardy') ||
+      (gameState.gamePhase === 'final_jeopardy' && !finalJudgingComplete());
+    if (gameState.gamePhase === 'completed') button.style.display = 'none';
   }
 
   btnGotoDouble.addEventListener('click', () => advanceRound('double_jeopardy'));
@@ -457,27 +460,8 @@ onReady(() => {
   btnGotoComplete.addEventListener('click', () => advanceRound('completed'));
 
   function advanceRound(nextPhase) {
-    gameState.gamePhase = nextPhase;
-    gameState.currentClue = null;
-    gameState.currentWager = null;
-    gameState.activeBuzzedTeamId = null;
-    
-    if (nextPhase === 'single_jeopardy' || nextPhase === 'double_jeopardy') {
-      gameState.categoryIntroIndex = 0;
-    } else {
-      gameState.categoryIntroIndex = null;
-    }
-    
-    gameState.teams.forEach(t => {
-      delete t.finalWager;
-      delete t.finalResult;
-    });
-    
-    saveStateToStorage();
-    
-    // Broadcast round advanced state
-    broadcastAction('SET_PHASE', { gamePhase: nextPhase });
-    
+    if (!beginRound(nextPhase)) return;
+    publishChange('SET_PHASE', { gamePhase: nextPhase });
     hostClueController.style.display = 'none';
     renderActiveGameUI();
   }
@@ -486,7 +470,82 @@ onReady(() => {
     renderRoundTransitions();
     renderSidebarScoreboards();
     renderPresenterGrid();
+    renderClueController();
   }
+
+  function changeCategory(direction) {
+    const categories = roundCategories();
+    const next = gameState.categoryIntroIndex + direction;
+    gameState.categoryIntroIndex = direction === 0 || next >= categories.length ? null : next;
+    publishChange(); renderActiveGameUI();
+  }
+  function revealFinalClue() {
+    // Validate all wagers
+    const inputs = hostClueGrid.querySelectorAll('.final-wager-input');
+    let valid = true;
+    const wagerData = [];
+
+    inputs.forEach(input => {
+      const teamId = parseInt(input.dataset.teamId, 10);
+      const team = gameState.teams.find(t => t.id === teamId);
+      const wager = parsePoints(input.value, true);
+      const errorDiv = document.getElementById(`error-team-${teamId}`);
+
+      if (wager === null || wager > gameState.finalParticipants.find(p => p.teamId === teamId).startingScore) {
+        if (errorDiv) {
+          errorDiv.textContent = `Wager must be between $0 and $${team.score}.`;
+          errorDiv.style.display = 'block';
+        }
+        valid = false;
+        input.style.borderColor = 'var(--color-incorrect)';
+      } else {
+        if (errorDiv) {
+          errorDiv.style.display = 'none';
+        }
+        input.style.borderColor = 'var(--border-glass)';
+        wagerData.push({ teamId, wager });
+      }
+    });
+
+    if (!valid) return;
+
+    if (!gameState.deck.finalJeopardy) return;
+    gameState.currentClue = gameState.deck.finalJeopardy;
+    gameState.clueStage = 'answering';
+    gameState.finalStage = 'judging';
+    startGameTimer('final');
+    // Save wagers to state
+    wagerData.forEach(data => {
+      const team = gameState.teams.find(t => t.id === data.teamId);
+      team.finalWager = data.wager;
+    });
+
+    publishChange('SHOW_FINAL_CLUE', { clue: gameState.deck.finalJeopardy });
+
+    // Redraw panel to Judging View
+    renderActiveGameUI();
+  }
+  const gridActions = {
+    'host-prev-category-btn': () => changeCategory(-1),
+    'host-next-category-btn': () => changeCategory(1),
+    'host-skip-categories-btn': () => changeCategory(0),
+    'host-goto-complete-btn': () => advanceRound('completed'),
+    'host-final-complete-btn': () => advanceRound('completed'),
+    'host-reveal-clue-btn': revealFinalClue,
+    'host-reveal-category-btn': () => {
+      if (gameState.deck.finalJeopardy) {
+        gameState.finalStage = 'category';
+        publishChange('SHOW_FINAL_CATEGORY', { category: gameState.deck.finalJeopardy.category });
+      }
+    },
+    'host-final-reveal-ans-btn': () => {
+      if (gameState.deck.finalJeopardy) {
+        gameState.answerVisible = true;
+        publishChange('REVEAL_ANSWER', { answer: gameState.deck.finalJeopardy.answer });
+      }
+    }
+  };
+
 
   function renderPresenterGrid() {
     hostClueGrid.innerHTML = '';
@@ -495,8 +554,7 @@ onReady(() => {
     if (gameState.categoryIntroIndex !== null && gameState.categoryIntroIndex !== undefined &&
         (gameState.gamePhase === 'single_jeopardy' || gameState.gamePhase === 'double_jeopardy')) {
       
-      const categories = gameState.gamePhase === 'double_jeopardy' ? 
-        gameState.deck.doubleJeopardy.categories : gameState.deck.singleJeopardy.categories;
+      const categories = roundCategories();
         
       const idx = gameState.categoryIntroIndex;
       const activeCategory = categories[idx];
@@ -520,7 +578,7 @@ onReady(() => {
           </p>
           <div class="glass" style="padding: 24px; display: inline-block; margin-bottom: 30px; border-color: var(--color-accent);">
             <h1 style="font-size: 32px; font-weight: 800; color: var(--color-text); text-transform: uppercase;">
-              ${activeCategory.name}
+              ${escapeHTML(activeCategory.name)}
             </h1>
             <div style="font-size: 14px; color: var(--color-text-muted); margin-top: 10px;">
               Category ${idx + 1} of ${categories.length}
@@ -542,46 +600,17 @@ onReady(() => {
         card.style.gridColumn = '1 / -1'; // Spans full width of the host clues layout
         hostClueGrid.appendChild(card);
         
-        // Wire controls
-        if (idx > 0) {
-          document.getElementById('host-prev-category-btn').addEventListener('click', () => {
-            gameState.categoryIntroIndex--;
-            saveStateToStorage();
-            broadcastState();
-            renderActiveGameUI();
-          });
-        }
-        
-        document.getElementById('host-next-category-btn').addEventListener('click', () => {
-          if (isLastCategory) {
-            gameState.categoryIntroIndex = null;
-          } else {
-            gameState.categoryIntroIndex++;
-          }
-          saveStateToStorage();
-          broadcastState();
-          renderActiveGameUI();
-        });
-        
-        document.getElementById('host-skip-categories-btn').addEventListener('click', () => {
-          gameState.categoryIntroIndex = null;
-          saveStateToStorage();
-          broadcastState();
-          renderActiveGameUI();
-        });
-        
         return;
       }
     }
     
     // Restore grid columns layout if standard clues grid rendering is active
-    const activeCategories = gameState.gamePhase === 'double_jeopardy' ? 
-      gameState.deck?.doubleJeopardy?.categories : gameState.deck?.singleJeopardy?.categories;
+    const activeCategories = roundCategories();
     const colCount = (activeCategories && activeCategories.length) || 5;
     hostClueGrid.style.gridTemplateColumns = `repeat(${colCount}, 1fr)`;
 
     if (gameState.gamePhase === 'final_jeopardy') {
-      const eligibleTeams = gameState.teams.filter(t => t.score > 0);
+      const eligibleTeams = gameState.finalParticipants.map(p => gameState.teams.find(t => t.id === p.teamId)).filter(Boolean);
       
       if (eligibleTeams.length === 0) {
         hostClueGrid.innerHTML = `
@@ -591,9 +620,7 @@ onReady(() => {
             <button class="btn btn-accent" id="host-goto-complete-btn">Advance to Game Completion</button>
           </div>
         `;
-        document.getElementById('host-goto-complete-btn').addEventListener('click', () => {
-          advanceRound('completed');
-        });
+
         return;
       }
       
@@ -607,10 +634,10 @@ onReady(() => {
           rowsHtml += `
             <div style="display: flex; flex-direction: column; margin-bottom: 12px; padding: 10px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px;">
               <div style="display: flex; justify-content: space-between; align-items: center; gap: 15px;">
-                <span style="font-weight: 600; color: ${team.color}; font-size: 16px;">${team.name}</span>
+                <span style="font-weight: 600; color: ${escapeHTML(team.color)}; font-size: 16px;">${escapeHTML(team.name)}</span>
                 <div style="display: flex; align-items: center; gap: 10px;">
-                  <span style="color: var(--color-text-muted);">Max: $${team.score}</span>
-                  <input type="number" class="final-wager-input" data-team-id="${team.id}" min="0" max="${team.score}" placeholder="Wager" style="width: 120px; padding: 8px; background: #000; border: 1px solid var(--border-glass); border-radius: 6px; color:#fff; text-align: center;">
+                  <span style="color: var(--color-text-muted);">Max: $${gameState.finalParticipants.find(p => p.teamId === team.id).startingScore}</span>
+                  <input type="number" class="final-wager-input" data-team-id="${team.id}" min="0" max="${gameState.finalParticipants.find(p => p.teamId === team.id).startingScore}" placeholder="Wager" style="width: 120px; padding: 8px; background: #000; border: 1px solid var(--border-glass); border-radius: 6px; color:#fff; text-align: center;">
                 </div>
               </div>
               <div class="inline-error" id="error-team-${team.id}" style="color: var(--color-incorrect); font-size: 12px; margin-top: 6px; text-align: right; display: none;"></div>
@@ -636,89 +663,19 @@ onReady(() => {
           </div>
         `;
 
-        const wagerInputs = hostClueGrid.querySelectorAll('.final-wager-input');
-        wagerInputs.forEach((input, idx) => {
-          input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              if (idx < wagerInputs.length - 1) {
-                wagerInputs[idx + 1].focus();
-              } else {
-                document.getElementById('host-reveal-clue-btn').click();
-              }
-            }
-          });
-        });
-        
-        document.getElementById('host-reveal-category-btn').addEventListener('click', () => {
-          if (gameState.deck.finalJeopardy) {
-            broadcastAction('SHOW_FINAL_CATEGORY', { category: gameState.deck.finalJeopardy.category });
-          }
-        });
-        
-        document.getElementById('host-reveal-clue-btn').addEventListener('click', () => {
-          // Validate all wagers
-          const inputs = hostClueGrid.querySelectorAll('.final-wager-input');
-          let valid = true;
-          const wagerData = [];
-          
-          inputs.forEach(input => {
-            const teamId = parseInt(input.dataset.teamId, 10);
-            const team = gameState.teams.find(t => t.id === teamId);
-            const wager = parseInt(input.value, 10);
-            const errorDiv = document.getElementById(`error-team-${teamId}`);
-            
-            if (isNaN(wager) || wager < 0 || wager > team.score) {
-              if (errorDiv) {
-                errorDiv.textContent = `Wager must be between $0 and $${team.score}.`;
-                errorDiv.style.display = 'block';
-              }
-              valid = false;
-              input.style.borderColor = 'var(--color-incorrect)';
-            } else {
-              if (errorDiv) {
-                errorDiv.style.display = 'none';
-              }
-              input.style.borderColor = 'var(--border-glass)';
-              wagerData.push({ teamId, wager });
-            }
-          });
-          
-          if (!valid) return;
-          
-          // Save wagers to state
-          wagerData.forEach(data => {
-            const team = gameState.teams.find(t => t.id === data.teamId);
-            team.finalWager = data.wager;
-          });
-          
-          saveStateToStorage();
-          
-          // Broadcast reveal Final Jeopardy clue (which triggers music on spectator screen)
-          if (gameState.deck.finalJeopardy) {
-            broadcastAction('SHOW_FINAL_CLUE', { clue: gameState.deck.finalJeopardy });
-          }
-          
-          // Redraw panel to Judging View
-          renderActiveGameUI();
-        });
-        
+
       } else {
         // Judging View
         let scoringHtml = '';
         eligibleTeams.forEach(team => {
-          const isCorrect = team.finalResult === 'correct';
-          const isIncorrect = team.finalResult === 'incorrect';
-          
           scoringHtml += `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px; margin-bottom: 12px; gap: 15px;">
               <div>
-                <span style="font-weight: 700; color: ${team.color}; font-size: 16px; display: block;">${team.name}</span>
+                <span style="font-weight: 700; color: ${escapeHTML(team.color)}; font-size: 16px; display: block;">${escapeHTML(team.name)}</span>
                 <span style="color: var(--color-text-muted); font-size: 13px;">Score: $${team.score} | Wager: $${team.finalWager}</span>
               </div>
               <div style="display: flex; gap: 8px;">
-                <button class="btn btn-correct final-correct-btn ${isCorrect ? 'active-grade' : ''}" data-team-id="${team.id}" style="padding: 6px 16px; min-width: 90px; opacity: ${team.finalResult && !isCorrect ? 0.3 : 1};">Correct</button>
-                <button class="btn btn-incorrect final-incorrect-btn ${isIncorrect ? 'active-grade' : ''}" data-team-id="${team.id}" style="padding: 6px 16px; min-width: 90px; opacity: ${team.finalResult && !isIncorrect ? 0.3 : 1};">Incorrect</button>
+                ${gradingButtons(team)}
               </div>
             </div>
           `;
@@ -735,8 +692,8 @@ onReady(() => {
             
             <div style="padding: 16px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-glass); border-radius: 8px; margin-bottom: 10px;">
               <h4 style="text-transform: uppercase; font-size: 12px; color: var(--color-accent); margin-bottom: 6px;">Clue & Reference Answer</h4>
-              <p style="font-size: 18px; font-weight: 500; margin-bottom: 8px;">${gameState.deck.finalJeopardy.question}</p>
-              <p style="font-size: 15px; color: var(--color-correct); font-weight: 700; margin: 0;">Answer: ${gameState.deck.finalJeopardy.answer}</p>
+              <p style="font-size: 18px; font-weight: 500; margin-bottom: 8px;">${escapeHTML(gameState.deck.finalJeopardy.question)}</p>
+              <p style="font-size: 15px; color: var(--color-correct); font-weight: 700; margin: 0;">Answer: ${escapeHTML(gameState.deck.finalJeopardy.answer)}</p>
             </div>
             
             <div style="display: flex; flex-direction: column; gap: 8px; max-width: 700px; width: 100%; margin: 0 auto;">
@@ -750,74 +707,10 @@ onReady(() => {
           </div>
         `;
         
-        // Add listeners to grading buttons
-        hostClueGrid.querySelectorAll('.final-correct-btn').forEach(btn => {
-          btn.addEventListener('click', () => {
-            const teamId = parseInt(btn.dataset.teamId, 10);
-            const team = gameState.teams.find(t => t.id === teamId);
-            
-            // Revert previous scoring adjustments if any
-            if (team.finalResult === 'correct') return; // already graded correct
-            if (team.finalResult === 'incorrect') {
-              team.score += team.finalWager * 2; // refund incorrect deduct + add correct
-            } else {
-              team.score += team.finalWager; // standard add
-            }
-            
-            team.finalResult = 'correct';
-            saveStateToStorage();
-            
-            // Sync scores to spectator board
-            broadcastAction('RESOLVE_CLUE', {
-              spentClues: gameState.spentClues,
-              teams: gameState.teams,
-              isCorrect: true,
-              isIncorrect: false,
-              keepOpen: true
-            });
-            
-            renderActiveGameUI();
-          });
-        });
+
+
         
-        hostClueGrid.querySelectorAll('.final-incorrect-btn').forEach(btn => {
-          btn.addEventListener('click', () => {
-            const teamId = parseInt(btn.dataset.teamId, 10);
-            const team = gameState.teams.find(t => t.id === teamId);
-            
-            // Revert previous scoring adjustments if any
-            if (team.finalResult === 'incorrect') return; // already graded incorrect
-            if (team.finalResult === 'correct') {
-              team.score -= team.finalWager * 2; // deduct correct add - deduct incorrect
-            } else {
-              team.score -= team.finalWager; // standard deduct
-            }
-            
-            team.finalResult = 'incorrect';
-            saveStateToStorage();
-            
-            // Sync scores to spectator board
-            broadcastAction('RESOLVE_CLUE', {
-              spentClues: gameState.spentClues,
-              teams: gameState.teams,
-              isCorrect: false,
-              isIncorrect: true,
-              keepOpen: true
-            });
-            
-            renderActiveGameUI();
-          });
-        });
-        
-        document.getElementById('host-final-reveal-ans-btn').addEventListener('click', () => {
-          if (gameState.deck.finalJeopardy) {
-            broadcastAction('REVEAL_ANSWER', { answer: gameState.deck.finalJeopardy.answer });
-          }
-        });
-        
-        document.getElementById('host-final-complete-btn').addEventListener('click', () => {
-          advanceRound('completed');
-        });
+
       }
       return;
     }
@@ -854,7 +747,7 @@ onReady(() => {
           resetBtn.addEventListener('click', () => {
             if (confirm("Are you sure you want to reset and start a new game? This clears current scores but preserves the loaded CSV game deck in memory.")) {
               resetGameState();
-              broadcastAction('SYNC_STATE', { state: gameState });
+              broadcastState(true);
               setTimeout(() => {
                 window.location.reload();
               }, 150);
@@ -865,8 +758,7 @@ onReady(() => {
       return;
     }
 
-    const categories = gameState.gamePhase === 'double_jeopardy' ? 
-      gameState.deck.doubleJeopardy.categories : gameState.deck.singleJeopardy.categories;
+    const categories = roundCategories();
       
     if (categories.length === 0) {
       hostClueGrid.innerHTML = '<p style="grid-column: 1 / -1; text-align: center;">No categories available.</p>';
@@ -881,7 +773,7 @@ onReady(() => {
       card.className = 'category-card';
       card.style.padding = '8px';
       card.style.borderStyle = 'dashed';
-      card.innerHTML = `<span class="category-title" style="font-size: 14px;">${cat.name}</span>`;
+      card.innerHTML = `<span class="category-title" style="font-size: 14px;">${escapeHTML(cat.name)}</span>`;
       hostClueGrid.appendChild(card);
     });
 
@@ -893,11 +785,15 @@ onReady(() => {
         const card = document.createElement('div');
         
         if (clue) {
-          const spentKey = `${gameState.gamePhase}-${cat.name}-${clue.value}`;
+          const spentKey = clue.id;
           const isSpent = gameState.spentClues.includes(spentKey);
           
           card.className = `host-clue-card ${isSpent ? 'spent' : ''} ${clue.isDailyDouble ? 'daily-double' : ''}`;
           
+          card.tabIndex = isSpent ? -1 : 0;
+          card.setAttribute('role', 'button');
+          card.setAttribute('aria-label', `${cat.name}, $${clue.value}`);
+          card.setAttribute('aria-disabled', String(isSpent));
           card.dataset.catName = cat.name;
           card.dataset.rowIndex = rowIndex;
           
@@ -906,8 +802,8 @@ onReady(() => {
               <span class="host-card-val">$${clue.value}</span>
               ${clue.isDailyDouble ? '<span style="font-size:10px; font-weight:700; color:var(--color-accent);">DD</span>' : ''}
             </div>
-            <div class="host-card-category">${cat.name}</div>
-            <div class="host-card-preview">${clue.question}</div>
+            <div class="host-card-category">${escapeHTML(cat.name)}</div>
+            <div class="host-card-preview">${escapeHTML(clue.question)}</div>
           `;
         } else {
           card.className = 'host-clue-card spent';
@@ -921,24 +817,26 @@ onReady(() => {
   /**
    * ACTIVATE CLUE CONTROL PANEL (JUDGING)
    */
-  function activateClueControl(clue, categoryName) {
-    clue.category = categoryName;
-    gameState.currentClue = clue;
-    gameState.currentWager = null;
-    gameState.activeBuzzedTeamId = null;
-    disabledBuzzers = [];
-    
-    saveStateToStorage();
-    
-    // Broadcast clue reveal to spectator board
-    broadcastAction('SHOW_CLUE', { clue });
-    
+  function activateClueControl(clue) {
+    if (!openGameClue(clue)) return;
+    publishChange('SHOW_CLUE', { clue });
+    renderRoundTransitions();
+    renderClueController();
+    hostClueController.tabIndex = -1;
+    hostClueController.focus({ preventScroll: true });
+    hostClueController.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function renderClueController() {
+    const clue = gameState.currentClue;
+    if (!clue || gameState.gamePhase === 'final_jeopardy') { hostClueController.style.display = 'none'; return; }
+    const categoryName = clue.category;
     controllerCategory.textContent = `${categoryName} - $${clue.value || 'Final'}`;
     controllerQuestion.textContent = clue.question;
     controllerAnswer.textContent = `Correct Answer: ${clue.answer}`;
     
     // Daily Double vs. Standard Clue check
-    if (clue.isDailyDouble) {
+    if (clue.isDailyDouble && gameState.clueStage === 'wager') {
       // Reveal Daily Double wagering panel
       ddWagerPanel.style.display = 'block';
       if (ddWagerError) {
@@ -964,15 +862,14 @@ onReady(() => {
       ddWagerPanel.style.display = 'none';
       buzzerActionPanel.style.display = 'block';
       quickScorePanel.style.display = 'block';
-      renderBuzzerClaimButtons();
+      if (clue.isDailyDouble) renderDailyDoubleBuzzerButton(gameState.wageringTeamId);
+      else renderBuzzerClaimButtons();
       renderQuickScoreButtons();
-      
-      hostClueCorrectBtn.disabled = true;
-      hostClueIncorrectBtn.disabled = true;
+      hostClueCorrectBtn.disabled = !gameState.activeBuzzedTeamId;
+      hostClueIncorrectBtn.disabled = !gameState.activeBuzzedTeamId;
     }
     
     hostClueController.style.display = 'flex';
-    hostClueController.scrollIntoView({ behavior: 'smooth' });
   }
 
   if (ddWagerInput) {
@@ -997,14 +894,14 @@ onReady(() => {
     }
     
     const maxClueVal = getMaxClueValueOfRound();
-    const maxAllowed = Math.max(team.score, maxClueVal);
+    const maxAllowed = dailyDoubleLimit(team, maxClueVal);
     const minWager = 5;
     
     // Strip dollar signs, commas, whitespace, and decimal points to allow formats like "$1,000" or " $ 500 "
-    const rawVal = (ddWagerInput.value || "").replace(/[\$,\s]/g, '').split('.')[0];
-    const wager = parseInt(rawVal, 10);
+
+    const wager = parsePoints(ddWagerInput.value);
     
-    if (isNaN(wager) || wager < minWager || wager > maxAllowed) {
+    if (wager === null || wager < minWager || wager > maxAllowed) {
       if (ddWagerError) {
         ddWagerError.textContent = `Invalid wager size. Daily Double wagers must be a minimum of $${minWager} and a maximum of $${maxAllowed} (which is the greater of the team's current score $${team.score} or the maximum clue value of this round $${maxClueVal}).`;
         ddWagerError.style.display = 'block';
@@ -1018,15 +915,8 @@ onReady(() => {
     }
     ddWagerInput.style.borderColor = 'var(--border-glass)';
     
-    gameState.currentWager = wager;
-    saveStateToStorage();
-    
-    // Broadcast wager to spectator board
-    broadcastAction('SET_WAGER', { wager });
-    
-    // Assign wagering team as the "Active buzzed team" automatically
-    gameState.activeBuzzedTeamId = teamId;
-    saveStateToStorage();
+    if (!setDailyDoubleWager(teamId, wager)) return;
+    publishChange('SET_WAGER', { wager });
     
     ddWagerPanel.style.display = 'none';
     
@@ -1069,79 +959,50 @@ onReady(() => {
       return;
     }
 
-    gameState.teams.forEach(team => {
-      // Create quick score card/group
-      const groupEl = document.createElement('div');
-      groupEl.style.display = 'flex';
-      groupEl.style.alignItems = 'center';
-      groupEl.style.gap = '6px';
-      groupEl.style.padding = '6px 12px';
-      groupEl.style.background = 'rgba(255,255,255,0.02)';
-      groupEl.style.border = '1px solid var(--border-glass)';
-      groupEl.style.borderRadius = '8px';
-
-      const nameEl = document.createElement('span');
-      nameEl.style.fontWeight = '600';
-      nameEl.style.fontSize = '14px';
-      nameEl.style.marginRight = '6px';
-      nameEl.style.color = team.color;
-      nameEl.textContent = team.name;
-
-      const plusBtn = document.createElement('button');
-      plusBtn.className = 'btn btn-correct';
-      plusBtn.style.padding = '4px 8px';
-      plusBtn.style.fontSize = '12px';
-      plusBtn.textContent = `+$${clueVal}`;
-      plusBtn.addEventListener('click', () => {
-        team.score += clueVal;
-        resolveClueWithQuickScore(true);
-      });
-
-      const minusBtn = document.createElement('button');
-      minusBtn.className = 'btn btn-incorrect';
-      minusBtn.style.padding = '4px 8px';
-      minusBtn.style.fontSize = '12px';
-      minusBtn.textContent = `-$${clueVal}`;
-      minusBtn.addEventListener('click', () => {
-        team.score -= clueVal;
-        resolveClueWithQuickScore(false);
-      });
-
-      groupEl.appendChild(nameEl);
-      groupEl.appendChild(plusBtn);
-      groupEl.appendChild(minusBtn);
-      quickScoreTeamsRow.appendChild(groupEl);
-    });
+    quickScoreTeamsRow.innerHTML = gameState.teams
+      .filter(team => !gameState.currentClue.isDailyDouble || team.id === gameState.wageringTeamId)
+      .map(team => `<div><span style="color: ${escapeHTML(team.color)};">${escapeHTML(team.name)}</span>${gradingButtons(team, clueVal)}</div>`).join('');
   }
 
-  function resolveClueWithQuickScore(isCorrect) {
-    if (!gameState.currentClue) return;
+  function gradingButtons(team, points = null) {
+    const final = points === null;
+    return ['correct', 'incorrect'].map((result, index) => {
+      const active = final && team.finalResult === result;
+      const classes = final ? `final-${result}-btn ${active ? 'active-grade' : ''}` : '';
+      const style = final ? ` style="padding: 6px 16px; min-width: 90px; opacity: ${team.finalResult && !active ? 0.3 : 1};"` : '';
+      const disabled = !final && gameState.lockedOutTeamIds.includes(team.id) ? ' disabled' : '';
+      const label = final ? (index ? 'Incorrect' : 'Correct') : `${index ? '-' : '+'}$${points}`;
+      return `<button class="btn btn-${result} ${classes}" data-team-id="${team.id}"${style}${disabled}>${label}</button>`;
+    }).join('');
+  }
 
-    // Mark clue as spent
-    if (gameState.gamePhase !== 'final_jeopardy') {
-      const categoryName = gameState.currentClue.category || controllerCategory.textContent.split(' - ')[0];
-      const spentKey = `${gameState.gamePhase}-${categoryName}-${gameState.currentClue.value}`;
-      if (!gameState.spentClues.includes(spentKey)) {
-        gameState.spentClues.push(spentKey);
-      }
-    }
-
-    gameState.currentClue = null;
-    gameState.activeBuzzedTeamId = null;
-    gameState.currentWager = null;
-
-    saveStateToStorage();
-
-    // Broadcast Resolve
-    broadcastAction('RESOLVE_CLUE', {
-      spentClues: gameState.spentClues,
-      teams: gameState.teams,
-      isCorrect: isCorrect,
-      isIncorrect: !isCorrect
-    });
-
-    hostClueController.style.display = 'none';
+  function judgeFinal(teamId, result) {
+    if (!gradeFinal(teamId, result)) return;
+    publishChange('RESOLVE_CLUE', { teams: gameState.teams, spentClues: gameState.spentClues,
+      isCorrect: result === 'correct', isIncorrect: result === 'incorrect', keepOpen: true });
     renderActiveGameUI();
+  }
+  quickScoreTeamsRow.addEventListener('click', event => {
+    const button = event.target.closest('button[data-team-id]');
+    if (!button || button.disabled) return;
+    submitGrade(Number(button.dataset.teamId), button.classList.contains('btn-correct') ? 'correct' : 'incorrect');
+  });
+
+  function submitGrade(teamId, result) {
+    const resolution = gradeClue(teamId, result);
+    if (!resolution) return;
+    publishChange('RESOLVE_CLUE', { ...resolution, teams: gameState.teams, spentClues: gameState.spentClues });
+    if (resolution.keepOpen) {
+      hostClueCorrectBtn.disabled = true;
+      hostClueIncorrectBtn.disabled = true;
+      renderBuzzerClaimButtons();
+      renderQuickScoreButtons();
+      renderSidebarScoreboards();
+    } else {
+      hostClueController.style.display = 'none';
+      renderActiveGameUI();
+      hostClueGrid.querySelector('.host-clue-card:not(.spent)')?.focus();
+    }
   }
 
   function renderBuzzerClaimButtons() {
@@ -1151,13 +1012,14 @@ onReady(() => {
       const btn = document.createElement('button');
       btn.className = 'btn';
       
-      const isDisabled = disabledBuzzers.includes(team.id);
+      const isDisabled = gameState.lockedOutTeamIds.includes(team.id);
       if (isDisabled) btn.disabled = true;
       
       btn.style.setProperty('--color-primary', team.color);
       btn.style.borderColor = team.color;
       btn.style.color = '#fff';
       btn.textContent = team.name;
+      btn.dataset.teamId = team.id;
       
       btn.addEventListener('click', () => assignActiveBuzzerTeam(team.id));
       buzzerTeamsRow.appendChild(btn);
@@ -1165,17 +1027,16 @@ onReady(() => {
   }
 
   function assignActiveBuzzerTeam(teamId) {
+    if (!gameState.currentClue || gameState.clueStage !== 'answering' || gameState.lockedOutTeamIds.includes(teamId)) return;
+    if (gameState.currentClue.isDailyDouble && gameState.wageringTeamId !== teamId) return;
     gameState.activeBuzzedTeamId = teamId;
-    saveStateToStorage();
-    
-    // Broadcast buzzer claim to spectator board (triggers beep + 5s timer)
-    broadcastAction('SET_ACTIVE_TEAM', { teamId });
+    startGameTimer('response');
+    publishChange('SET_ACTIVE_TEAM', { teamId });
     
     // Highlight buzzed team button
     const buttons = buzzerTeamsRow.querySelectorAll('button');
     buttons.forEach(btn => {
-      const teamName = btn.textContent;
-      const teamObj = gameState.teams.find(t => t.name === teamName);
+      const teamObj = gameState.teams.find(t => t.id === Number(btn.dataset.teamId));
       if (teamObj && teamObj.id === teamId) {
         btn.style.backgroundColor = teamObj.color;
       } else {
@@ -1189,142 +1050,51 @@ onReady(() => {
 
   // --- JUDGING ACTIONS ---
 
-  hostClueCorrectBtn.addEventListener('click', () => {
-    if (!gameState.currentClue || !gameState.activeBuzzedTeamId) return;
-    
-    const team = gameState.teams.find(t => t.id === gameState.activeBuzzedTeamId);
-    if (team) {
-      const clueVal = gameState.currentClue.isDailyDouble ? 
-        gameState.currentWager : (gameState.currentClue.value || 0);
-        
-      team.score += clueVal;
-    }
-    
-    // Final Jeopardy doesn't have grid keys
-    if (gameState.gamePhase !== 'final_jeopardy') {
-      const categoryName = gameState.currentClue.category || controllerCategory.textContent.split(' - ')[0];
-      const spentKey = `${gameState.gamePhase}-${categoryName}-${gameState.currentClue.value}`;
-      if (!gameState.spentClues.includes(spentKey)) {
-        gameState.spentClues.push(spentKey);
-      }
-    }
-    
-    gameState.currentClue = null;
-    gameState.activeBuzzedTeamId = null;
-    gameState.currentWager = null;
-    
-    saveStateToStorage();
-    
-    // Broadcast Resolve: Correct
-    broadcastAction('RESOLVE_CLUE', {
-      spentClues: gameState.spentClues,
-      teams: gameState.teams,
-      isCorrect: true,
-      isIncorrect: false
-    });
-    
-    hostClueController.style.display = 'none';
-    renderActiveGameUI();
-  });
-
-  hostClueIncorrectBtn.addEventListener('click', () => {
-    if (!gameState.currentClue || !gameState.activeBuzzedTeamId) return;
-    
-    const team = gameState.teams.find(t => t.id === gameState.activeBuzzedTeamId);
-    if (team) {
-      const clueVal = gameState.currentClue.isDailyDouble ? 
-        gameState.currentWager : (gameState.currentClue.value || 0);
-        
-      team.score -= clueVal;
-    }
-    
-    // Lock out this team from buzzing again for this clue
-    disabledBuzzers.push(gameState.activeBuzzedTeamId);
-    gameState.activeBuzzedTeamId = null;
-    saveStateToStorage();
-    
-    // Check if Daily Double or Final Jeopardy or all teams locked out
-    const isSpecialClue = gameState.currentClue.isDailyDouble || gameState.gamePhase === 'final_jeopardy';
-    const allLockedOut = disabledBuzzers.length >= gameState.teams.length;
-    const keepOpen = !isSpecialClue && !allLockedOut;
-
-    // Broadcast Resolve: Incorrect (plays incorrect sound cue)
-    broadcastAction('RESOLVE_CLUE', {
-      spentClues: gameState.spentClues,
-      teams: gameState.teams,
-      isCorrect: false,
-      isIncorrect: true,
-      keepOpen: keepOpen
-    });
-    
-    renderSidebarScoreboards();
-    
-    if (!keepOpen) {
-      // Clue dead: Close clue and force spend
-      if (gameState.gamePhase !== 'final_jeopardy') {
-        const categoryName = gameState.currentClue.category || controllerCategory.textContent.split(' - ')[0];
-        const spentKey = `${gameState.gamePhase}-${categoryName}-${gameState.currentClue.value}`;
-        if (!gameState.spentClues.includes(spentKey)) {
-          gameState.spentClues.push(spentKey);
-        }
-      }
-      
-      gameState.currentClue = null;
-      gameState.currentWager = null;
-      saveStateToStorage();
-      
-      setTimeout(() => {
-        broadcastAction('RESOLVE_CLUE', {
-          spentClues: gameState.spentClues,
-          teams: gameState.teams,
-          isCorrect: false,
-          isIncorrect: false,
-          keepOpen: false
-        });
-        hostClueController.style.display = 'none';
-        renderActiveGameUI();
-      }, 1000);
-      
-    } else {
-      // Clue remains open: re-enable remaining buzzers
-      hostClueCorrectBtn.disabled = true;
-      hostClueIncorrectBtn.disabled = true;
-      renderBuzzerClaimButtons();
-    }
-  });
-
-  hostClueSkipBtn.addEventListener('click', () => {
-    if (!gameState.currentClue) return;
-    
-    if (gameState.gamePhase !== 'final_jeopardy') {
-      const categoryName = gameState.currentClue.category || controllerCategory.textContent.split(' - ')[0];
-      const spentKey = `${gameState.gamePhase}-${categoryName}-${gameState.currentClue.value}`;
-      if (!gameState.spentClues.includes(spentKey)) {
-        gameState.spentClues.push(spentKey);
-      }
-    }
-    
-    gameState.currentClue = null;
-    gameState.activeBuzzedTeamId = null;
-    gameState.currentWager = null;
-    saveStateToStorage();
-    
-    // Broadcast Resolve: No Answer (Closes overlay with no point change)
-    broadcastAction('RESOLVE_CLUE', {
-      spentClues: gameState.spentClues,
-      teams: gameState.teams,
-      isCorrect: false,
-      isIncorrect: false
-    });
-    
-    hostClueController.style.display = 'none';
-    renderActiveGameUI();
-  });
+  hostClueCorrectBtn.addEventListener('click', () => submitGrade(gameState.activeBuzzedTeamId, 'correct'));
+  hostClueIncorrectBtn.addEventListener('click', () => submitGrade(gameState.activeBuzzedTeamId, 'incorrect'));
+  hostClueSkipBtn.addEventListener('click', () => submitGrade(null, 'skip'));
 
   hostRevealAnswerBtn.addEventListener('click', () => {
     if (gameState.currentClue) {
-      broadcastAction('REVEAL_ANSWER', { answer: gameState.currentClue.answer });
+      gameState.answerVisible = true;
+      publishChange('REVEAL_ANSWER', { answer: gameState.currentClue.answer });
     }
+  });
+
+  function renderHistoryControls() {
+    const undo = document.getElementById('undo-score'), redo = document.getElementById('redo-score');
+    if (undo) undo.disabled = !gameState.undoStack.length;
+    if (redo) redo.disabled = !gameState.redoStack.length;
+    const status = document.getElementById('history-status');
+    if (status) status.textContent = gameState.undoStack.at(-1)?.label || 'No scoring changes yet';
+  }
+  function restoreHistory(redo) {
+    if (!(redo ? redoGameChange() : undoGameChange())) return;
+    publishChange('RESTORE_GAME'); renderActiveGameUI();
+  }
+  document.getElementById('undo-score')?.addEventListener('click', () => restoreHistory(false));
+  document.getElementById('redo-score')?.addEventListener('click', () => restoreHistory(true));
+  document.getElementById('export-session')?.addEventListener('click', () => {
+    downloadText(exportSessionBackup(), 'jeopardy-session.json', 'application/json');
+  });
+  const sessionInput = document.getElementById('session-upload');
+  ['restore-session', 'restore-session-setup'].forEach(id => document.getElementById(id)?.addEventListener('click', () => sessionInput.click()));
+  sessionInput?.addEventListener('change', async () => {
+    const file = sessionInput.files[0];
+    const setStatus = text => ['session-status', 'setup-session-status'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = text; });
+    if (!file) return;
+    try {
+      if (file.size > 5 * 1024 * 1024) throw new Error('Backup exceeds 5 MB.');
+      const restored = parseSessionBackup(await file.text());
+      if (restored.timer) { restored.timer.remaining = timerRemaining(restored.timer); restored.timer.paused = true; }
+      Object.assign(gameState, restored);
+      historyGeneration++;
+      publishChange('SYNC_STATE', { fullSnapshot: true });
+      if (gameState.gamePhase === 'setup') { activeGameContainer.style.display = 'none'; setupContainer.style.display = 'block'; renderTeamSetupInputs(); startGameBtn.disabled = false; }
+      else { launchActiveDashboard(); initSettingsUI(); }
+      setStatus('Session restored. Any active timer is paused.');
+    } catch (error) { setStatus(error.message); }
+    sessionInput.value = '';
   });
 
   // --- SIDEBAR UTILITIES ---
@@ -1333,24 +1103,12 @@ onReady(() => {
   openBoardBtn.addEventListener('click', () => {
     // In single-file/inline mode, the page name can be index.html or anything else.
     // If the path does not end with 'host.html', we assume we are in unified/routed mode and open the current page with '?view=board'.
-    const isHostFile = window.location.pathname.endsWith('host.html');
-    const filename = window.location.pathname.substring(window.location.pathname.lastIndexOf('/') + 1);
-    const targetUrl = isHostFile ? 'board.html' : `${filename || 'index.html'}?view=board`;
-    
-    const win = window.open(targetUrl, 'jeopardy_board_display', 'width=1200,height=800');
-    if (win) {
-      directWindows.add(win);
-      // Wait a tiny bit and send sync state directly to the new window
-      setTimeout(() => {
-        try {
-          if (win && !win.closed) {
-            win.postMessage({ action: 'SYNC_STATE', payload: { state: gameState } }, '*');
-          }
-        } catch (e) {
-          console.warn("Failed to send initial sync to newly opened window:", e);
-        }
-      }, 500); // 500ms delay to allow the window to load
-    }
+    const target = window.location.pathname.endsWith('host.html') ? new URL('board.html', window.location.href) : new URL(window.location.href);
+    target.searchParams.set('view', 'board');
+    target.searchParams.set('session', gameState.sessionId);
+    const win = window.open(target.href, 'jeopardy_board_display', 'width=1200,height=800');
+    if (win) directWindows.add(win);
+    else if (connectionStatus) connectionStatus.textContent = 'Popup blocked · allow popups and try again';
   });
 
   // Sidebar Reset Game Session click listener
@@ -1358,7 +1116,7 @@ onReady(() => {
     resetGameBtn.addEventListener('click', () => {
       if (confirm("Are you sure you want to reset and start a new game? This clears current scores but preserves the loaded CSV game deck in memory.")) {
         resetGameState();
-        broadcastAction('SYNC_STATE', { state: gameState });
+        broadcastState(true);
         setTimeout(() => {
           window.location.reload();
         }, 150);
@@ -1366,8 +1124,46 @@ onReady(() => {
     });
   }
 
+  initDeckEditor(() => {
+    publishChange('SYNC_STATE', { fullSnapshot: true });
+    if (gameState.gamePhase !== 'setup') renderActiveGameUI();
+    else {
+      uploadStatus.textContent = `Edited deck: ${gameState.deckName || 'game board'}`;
+      document.getElementById('import-details').textContent = deckClues().map(({ clue }) => `${clue.category} · $${clue.value} · ${clue.question}`).join('\n');
+      startGameBtn.disabled = false;
+    }
+  });
+  hostClueGrid.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && event.target.matches('.final-wager-input')) {
+      event.preventDefault();
+      const inputs = [...hostClueGrid.querySelectorAll('.final-wager-input')];
+      const next = inputs[inputs.indexOf(event.target) + 1];
+      if (next) next.focus(); else revealFinalClue();
+    }
+    if (['Enter', ' '].includes(event.key) && event.target.classList.contains('host-clue-card')) { event.preventDefault(); event.target.click(); }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.target.closest('input, textarea, select, [contenteditable="true"]') || document.getElementById('deck-editor').open) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); restoreHistory(event.shiftKey); return; }
+    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+    const key = event.key.toLowerCase();
+    if (/^[1-4]$/.test(key)) { const team = gameState.teams[Number(key) - 1]; if (team) assignActiveBuzzerTeam(team.id); }
+    else if (key === 'c') hostClueCorrectBtn.click();
+    else if (key === 'i') hostClueIncorrectBtn.click();
+    else if (key === 'r') hostRevealAnswerBtn.click();
+    else if (key === 's') hostClueSkipBtn.click();
+    else if (key === 'p') timerToggle?.click();
+  });
+
   // Centralized Event Delegation for clue card grid clicks
   hostClueGrid.addEventListener('click', (e) => {
+    const button = e.target.closest('button');
+    if (button) {
+      if (button.disabled) return;
+      if (button.dataset.teamId) judgeFinal(Number(button.dataset.teamId), button.classList.contains('btn-correct') ? 'correct' : 'incorrect');
+      else gridActions[button.id]?.();
+      return;
+    }
     // If the category introductions or final jeopardy captured are active, ignore
     if (gameState.categoryIntroIndex !== null && gameState.categoryIntroIndex !== undefined) return;
     if (gameState.gamePhase === 'final_jeopardy' || gameState.gamePhase === 'setup' || gameState.gamePhase === 'completed') return;
@@ -1379,8 +1175,7 @@ onReady(() => {
     const rowIndex = parseInt(card.dataset.rowIndex, 10);
     if (!catName || isNaN(rowIndex)) return;
     
-    const categories = gameState.gamePhase === 'double_jeopardy' ? 
-      gameState.deck.doubleJeopardy.categories : gameState.deck.singleJeopardy.categories;
+    const categories = roundCategories();
       
     const cat = categories.find(c => c.name === catName);
     if (cat) {

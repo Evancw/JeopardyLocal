@@ -1,179 +1,109 @@
-/**
- * Jeopardy Single-File Compiler Script (build.js)
- * Compiles index.html, style.css, and all JS state modules into a single, fully self-contained offline HTML file.
- * Runs completely offline using native Node.js libraries (zero external dependencies).
- */
+/* Build portable HTML; readable source remains the uncompressed fallback. */
+const fs = require('node:fs');
+const path = require('node:path');
+const { BASE85_ALPHABET, encodeBase85, decodeBase85 } = require('./payload.js');
+const root = path.resolve(__dirname, '..');
+const scripts = ['deck', 'app', 'session-tools', 'audio', 'board-ui', 'deck-editor', 'host-ui'];
 
-const fs = require("fs");
-const path = require("path");
-const zlib = require("zlib");
-
-const rootDir = process.env.PWD || process.cwd();
-const indexFile = path.join(rootDir, "index.html");
-const distDir = path.join(rootDir, "dist");
-const outputFile = path.join(distDir, "jeopardy_all_in_one.html");
-
-console.log("--------------------------------------------------");
-console.log("🚀 Starting Single-File Jeopardy Compiler Pipeline...");
-console.log(`Source template: ${indexFile}`);
-console.log("--------------------------------------------------");
-
-function minifyCSS(css) {
-  return css
-    .replace(/\/\*[\s\S]*?\*\//g, "") // Strip block comments
-    .split("\n")
-    .map((line) => line.trim()) // Trim spaces
-    .filter((line) => line.length > 0)
-    .join("") // Merge into single line
-    .replace(/\s*([\{\}:;,])\s*/g, "$1") // Trim around symbols
-    .replace(/\s+/g, " ") // Collapse remaining double spaces
-    .trim();
-}
-
-function minifyJS(js) {
-  return js
-    .replace(/\/\*[\s\S]*?\*\//g, "") // 1. Strip block comments
-    .replace(/(^|[^:])\/\/.*$/gm, "$1") // 2. Strip mid-line comments (protecting URLs)
-    .split("\n")
-    .map((line) => line.trim()) // 3. Trim indents and trailing spaces
-    .filter((line) => line.length > 0) // 4. Purge empty lines completely
-    .join("\n")
-    .replace(/\s*([\(\)\=\+\-\*\/,\:;\?<>!])\s*/g, "$1") // 5. Strip spaces around operators/symbols (leaving { and } intact for template literals)
-    .trim();
-}
-
-function minifyHTML(html) {
-  return html
-    .replace(/<!--(?!\[if)[\s\S]*?-->/g, "") // Strip HTML comments
-    .replace(/>\s+([^\s<])/g, ">$1") // Trim spaces after tags
-    .replace(/([^\s>])\s+</g, "$1<") // Trim spaces before tags
-    .trim();
-}
-
-try {
-  // Ensure target output directory exists
-  if (!fs.existsSync(distDir)) {
-    fs.mkdirSync(distDir, { recursive: true });
-    console.log(`Created output folder: ${distDir}`);
+function inlineSource(html, directory = root) {
+  html = html.replace('<link rel="stylesheet" href="src/css/style.css">', () =>
+    `<style>\n${fs.readFileSync(path.join(directory, 'src/css/style.css'), 'utf8')}\n</style>`);
+  for (const name of scripts) {
+    const code = fs.readFileSync(path.join(directory, `src/js/${name}.js`), 'utf8').replace(/<\/script/gi, '<\\/script');
+    // A callback preserves literal dollars, strings, templates, and regular expressions.
+    html = html.replace(`<script src="src/js/${name}.js"></script>`, () => `<script>\n${code}\n</script>`);
   }
+  if (/<script\s+src=|<link\s+rel="stylesheet"/.test(html)) throw new Error('An asset was not inlined.');
+  return html;
+}
 
-  // Load the unified HTML template
-  if (!fs.existsSync(indexFile)) {
-    throw new Error(
-      `Unified template index.html not found in root. Make sure you are in the workspace directory.`,
-    );
-  }
-  let html = fs.readFileSync(indexFile, "utf8");
+function splitViews(html) {
+  const hostStart = html.indexOf('  <!-- ==================== HOST');
+  const boardStart = html.indexOf('  <!-- ==================== SPECTATOR');
+  const scriptsStart = html.indexOf('  <!-- State & Audio Script Links -->');
+  if (hostStart < 0 || boardStart < 0 || scriptsStart < 0) throw new Error('View boundaries not found.');
+  const head = html.slice(0, hostStart), tail = html.slice(scriptsStart);
+  return {
+    host: head + html.slice(hostStart, boardStart) + tail.replace('  <script src="src/js/board-ui.js"></script>\n', ''),
+    board: head + html.slice(boardStart, scriptsStart) + tail.replace('  <script src="src/js/host-ui.js"></script>\n', '').replace('  <script src="src/js/deck-editor.js"></script>\n', '')
+  };
+}
 
-  // 1. Inline CSS stylesheets
-  const cssRegex =
-    /<link\s+rel="stylesheet"\s+href="src\/css\/style\.css"\s*\/?>/g;
-  html = html.replace(cssRegex, () => {
-    const cssPath = path.join(rootDir, "src", "css", "style.css");
-    console.log(`➕ Inlining & minifying stylesheet: src/css/style.css`);
-    if (!fs.existsSync(cssPath)) {
-      throw new Error(`CSS file not found at ${cssPath}`);
-    }
-    const cssContent = fs.readFileSync(cssPath, "utf8");
-    const minifiedCss = minifyCSS(cssContent);
-    console.log(
-      `   └─ Size reduced: ${cssContent.length} bytes -> ${minifiedCss.length} bytes (${Math.round((1 - minifiedCss.length / cssContent.length) * 100)}% saved)`,
-    );
-    return `<style>\n${minifiedCss}\n</style>`;
+async function optimizeJavaScript(code) {
+  const { minify } = require('terser');
+  const result = await minify(code, {
+    compress: { passes: 2 }, mangle: { toplevel: false }, toplevel: false,
+    format: { comments: false, inline_script: true }
   });
+  return result.code;
+}
 
-  // 2. Inline Javascript files sequentially
-  const scripts = [
-    { name: "app.js", src: "src/js/app.js" },
-    { name: "audio.js", src: "src/js/audio.js" },
-    { name: "board-ui.js", src: "src/js/board-ui.js" },
-    { name: "host-ui.js", src: "src/js/host-ui.js" },
-  ];
-
-  scripts.forEach((script) => {
-    const scriptRegex = new RegExp(
-      `<script\\s+src="src\\/js\\/${script.name}"\\s*><\\/script>`,
-      "g",
-    );
-    const jsPath = path.join(rootDir, script.src);
-    console.log(`➕ Inlining & minifying javascript: ${script.src}`);
-    if (!fs.existsSync(jsPath)) {
-      throw new Error(`JS file not found at ${jsPath}`);
-    }
-    const jsContent = fs.readFileSync(jsPath, "utf8");
-    const minifiedJs = minifyJS(jsContent);
-    console.log(
-      `   └─ Size reduced: ${jsContent.length} bytes -> ${minifiedJs.length} bytes (${Math.round((1 - minifiedJs.length / jsContent.length) * 100)}% saved)`,
-    );
-    html = html.replace(scriptRegex, `<script>\n${minifiedJs}\n</script>`);
+async function optimizeHTML(html) {
+  const CleanCSS = require('clean-css');
+  const { minify } = require('html-minifier-terser');
+  const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+  if (blocks.length !== scripts.length + 1) throw new Error('Expected the routing script and application scripts.');
+  // The router keeps its early position; application scripts keep their order.
+  const bundle = await optimizeJavaScript(blocks.slice(1).map(block => block[1]).join('\n'));
+  for (const block of blocks.slice(1)) html = html.replace(block[0], '');
+  html = html.replace('</body>', () => `<script>${bundle}</script></body>`);
+  // Minify the early router separately from the shared classic-script bundle.
+  const router = await optimizeJavaScript(blocks[0][1]);
+  html = html.replace(blocks[0][0], () => `<script>${router}</script>`);
+  html = html.replace(/<style>([\s\S]*?)<\/style>/, (_, code) => {
+    const result = new CleanCSS({ level: 1 }).minify(code);
+    if (result.errors.length) throw new Error(result.errors.join('\n'));
+    return `<style>${result.styles}</style>`;
   });
-
-  // 3. Minify inline router script and entire HTML structure
-  console.log("➕ Minifying inline template scripts and HTML layout...");
-  html = html.replace(/<script>([\s\S]*?)<\/script>/gi, (match, jsCode) => {
-    return `<script>\n${minifyJS(jsCode)}\n</script>`;
+  return minify(html, {
+    removeComments: true, collapseWhitespace: true, conservativeCollapse: true,
+    minifyJS: false, minifyCSS: false
   });
-  const rawHtmlLen = html.length;
-  html = minifyHTML(html);
-  console.log(
-    `   └─ HTML size reduced: ${rawHtmlLen} bytes -> ${html.length} bytes (${Math.round((1 - html.length / rawHtmlLen) * 100)}% saved)`,
-  );
+}
 
-  // 4. Compress using Gzip and encode as Base64
-  console.log("🗜️ Compressing unified package with Gzip...");
-  const gzipBuffer = zlib.gzipSync(Buffer.from(html, "utf8"), { level: 9 });
-  const compressedBase64 = gzipBuffer.toString("base64");
-
-  // 5. Construct self-extracting bootstrap HTML
-  const selfExtractingHtml = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Jeopardy Single-File Offline</title>
-</head>
-<body style="background:#0c101b; color:#fff; font-family:system-ui,-apple-system,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; overflow:hidden;">
-  <div id="loader" style="text-align:center;">
-    <h2 style="font-size:24px; font-weight:700; margin-bottom:8px; letter-spacing:-0.02em;">Loading Jeopardy...</h2>
-    <p style="font-size:14px; color:rgba(255,255,255,0.4); margin:0 0 20px;">Decompressing native offline assets...</p>
-    <div style="width:40px; height:40px; border:4px solid rgba(255,255,255,0.1); border-radius:50%; border-top-color:#3b82f6; animation:spin 1s infinite linear; margin:0 auto;"></div>
-  </div>
-  <style>@keyframes spin { 100% { transform:rotate(360deg); } }</style>
-  <script>
+async function packageHTML(html, { encoding = 'base85' } = {}) {
+  if (!['base85', 'base64'].includes(encoding)) throw new Error('Unknown payload encoding.');
+  const { gzipAsync } = require('@gfx/zopfli');
+  const bytes = Buffer.from(await gzipAsync(Buffer.from(html, 'utf8'), { numiterations: 15 }));
+  const payload = encoding === 'base85' ? encodeBase85(bytes) : bytes.toString('base64');
+  const decoder = encoding === 'base85'
+    ? `const BASE85_ALPHABET = ${JSON.stringify(BASE85_ALPHABET)};\n${decodeBase85.toString()}\nconst bytes = decodeBase85(data.textContent, Number(data.dataset.bytes));`
+    : "const bytes = Uint8Array.from(atob(data.textContent), c => c.charCodeAt(0));";
+  const loader = await optimizeJavaScript(`
     (async () => {
-      const payload = "${compressedBase64}";
       try {
-        const bytes = Uint8Array.from(atob(payload), c => c.charCodeAt(0));
-        const ds = new DecompressionStream('gzip');
-        const writer = ds.writable.getWriter();
-        writer.write(bytes);
-        writer.close();
-        const decompressed = await new Response(ds.readable).text();
-        const loader = document.getElementById('loader');
-        if (loader) {
-          loader.style.display = 'none';
-          loader.remove();
-        }
-        document.open();
-        document.write(decompressed);
-        document.close();
-      } catch (err) {
-        document.getElementById('loader').innerHTML = '<h3 style="color:#ef4444;">Error Loading App</h3><p style="font-size:14px; color:rgba(255,255,255,0.6);">' + err.message + '</p>';
+        if (typeof DecompressionStream !== 'function') throw new Error('This browser needs the uncompressed edition. Use index.html or build with --plain.');
+        const data = document.getElementById('payload');
+        ${decoder}
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+        const html = await new Response(stream).text();
+        document.open(); document.write(html); document.close();
+      } catch (error) {
+        const status = document.getElementById('loader');
+        if (status) status.textContent = 'Unable to load: ' + error.message;
       }
-    })();
-  </script>
-</body>
-</html>`;
-
-  // Write fully packaged self-contained compressed HTML
-  fs.writeFileSync(outputFile, selfExtractingHtml, "utf8");
-  console.log("--------------------------------------------------");
-  console.log("🎉 SUCCESS! Standalone self-extracting application created!");
-  console.log(
-    `   └─ Size reduced: ${html.length} bytes -> ${selfExtractingHtml.length} bytes (${Math.round((1 - selfExtractingHtml.length / html.length) * 100)}% saved offline)`,
-  );
-  console.log(`Output: file://${outputFile}`);
-  console.log("--------------------------------------------------");
-} catch (error) {
-  console.error("❌ Compilation failed:", error.message);
-  process.exit(1);
+    })();`);
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jeopardy</title></head>
+<body style="background:#0c101b;color:#fff;font-family:system-ui;margin:40px">
+<p id="loader" role="status">Loading Jeopardy…</p>
+<script id="payload" type="application/octet-stream" data-bytes="${bytes.length}" data-encoding="${encoding}">${payload}</script>
+<script>${loader}</script></body></html>`;
 }
+
+async function build() {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const views = splitViews(html);
+  fs.writeFileSync(path.join(root, 'host.html'), views.host);
+  fs.writeFileSync(path.join(root, 'board.html'), views.board);
+  const inline = inlineSource(html);
+  const plain = process.argv.includes('--plain');
+  const optimized = plain ? inline : await optimizeHTML(inline);
+  const output = plain ? inline : await packageHTML(optimized, { encoding: process.argv.includes('--base64') ? 'base64' : 'base85' });
+  fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
+  const file = path.join(root, 'dist', plain ? 'jeopardy_uncompressed.html' : 'jeopardy_all_in_one.html');
+  fs.writeFileSync(file, output);
+  console.log(`Built ${path.basename(file)}: ${Buffer.byteLength(output)} bytes (source: ${Buffer.byteLength(inline)} bytes).`);
+}
+if (require.main === module) build().catch(error => { console.error(error.message); process.exitCode = 1; });
+module.exports = { inlineSource, optimizeJavaScript, optimizeHTML, packageHTML, splitViews };

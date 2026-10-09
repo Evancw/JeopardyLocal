@@ -17,6 +17,12 @@ const directWindows = new Set();
 
 // Central State Structure
 const gameState = {
+  sessionId: globalThis.crypto?.randomUUID?.() || `session-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  revision: 0,
+  timer: null,
+  undoStack: [],
+  redoStack: [],
+  scoreEvents: [],
   teams: [], // Dynamic array of 2 to 4 teams
   deck: {
     singleJeopardy: { categories: [] },
@@ -24,38 +30,131 @@ const gameState = {
     finalJeopardy: null
   },
   currentClue: null, // Active Clue object
+  lockedOutTeamIds: [],
+  wageringTeamId: null,
+  clueStage: 'idle',
+  answerVisible: false,
+  finalParticipants: [],
+  finalStage: 'category',
   currentWager: null, // Active Daily Double / Final Jeopardy wager
   activeBuzzedTeamId: null, // Buzzed team ID allowed to answer
-  spentClues: [], // Array of "round-category-value" spent strings
+  spentClues: [], // Stable clue IDs
   deckName: null, // Filename of the loaded game board CSV
   gamePhase: 'setup', // 'setup' | 'single_jeopardy' | 'double_jeopardy' | 'final_jeopardy' | 'completed'
   categoryIntroIndex: null, // null | number (0-4) during active round category reveals
   settings: {
     clueFontSizeMultiplier: 1.0,
+    lowEffects: false,
+    responseSeconds: 5,
+    finalSeconds: 30,
     soundEnabled: true
   }
 };
 
 // State Helpers
-const STORAGE_KEY = 'jeopardy_local_state';
-
-function saveStateToStorage() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState));
-  } catch (e) {
-    console.warn("localStorage save failed (blocked or disabled):", e);
+function onReady(fn) {
+  if (document.readyState !== 'loading') {
+    fn();
+  } else {
+    document.addEventListener('DOMContentLoaded', fn);
   }
 }
 
-function loadStateFromStorage() {
+const STORAGE_KEY = 'jeopardy_local_state';
+
+function isHostView() {
+  if (typeof window === 'undefined') return true;
+  return new URLSearchParams(window.location.search).get('view') !== 'board' && !window.location.pathname.endsWith('board.html');
+}
+
+let savedDeckId = null, savedHistoryGeneration = null, settingsSaveTimer = null;
+function saveStateToStorage() {
+  if (!isHostView()) return;
+  clearTimeout(settingsSaveTimer);
+  gameState.revision = Math.max(Date.now(), gameState.revision + 1);
+  const status = typeof document === 'undefined' ? null : document.getElementById('storage-status');
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    ensureDeckIds(gameState.deck);
+    if (savedDeckId !== gameState.deck.id) {
+      localStorage.setItem(`jeopardy_deck:${gameState.deck.id}`, JSON.stringify(gameState.deck));
+      savedDeckId = gameState.deck.id;
+    }
+    const historyKey = `${STORAGE_KEY}:history:${gameState.sessionId}`;
+    if (savedHistoryGeneration !== historyGeneration) {
+      localStorage.setItem(historyKey, JSON.stringify({ undoStack: gameState.undoStack, redoStack: gameState.redoStack, scoreEvents: gameState.scoreEvents }));
+      savedHistoryGeneration = historyGeneration;
+    }
+    const snapshot = { ...stateSnapshot(), deckId: gameState.deck.id, historyKey };
+    const state = JSON.stringify(snapshot);
+    localStorage.setItem(STORAGE_KEY, state);
+    localStorage.setItem(`${STORAGE_KEY}:${gameState.sessionId}`, state);
+    if (status) status.textContent = 'Session saved in this browser';
+    return true;
+  } catch (error) {
+    if (status) status.textContent = 'Autosave unavailable. Download a session backup.';
+    console.warn('Session autosave unavailable:', error);
+    return false;
+  }
+}
+
+function scheduleSettingsSave() {
+  clearTimeout(settingsSaveTimer);
+  settingsSaveTimer = setTimeout(saveStateToStorage, 300);
+}
+if (typeof window !== 'undefined' && isHostView()) window.addEventListener('pagehide', saveStateToStorage);
+
+function loadStateFromStorage() {
+  const previous = { ...gameState };
+  try {
+    const session = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('session');
+    const stored = localStorage.getItem(session ? `${STORAGE_KEY}:${session}` : STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      Object.assign(gameState, parsed);
+      if (!parsed.deck && parsed.deckId) parsed.deck = JSON.parse(localStorage.getItem(`jeopardy_deck:${parsed.deckId}`) || 'null');
+      if (!parsed.deck?.singleJeopardy?.categories || !parsed.deck?.doubleJeopardy?.categories || !Array.isArray(parsed.teams)) return false;
+      if (parsed.historyKey === `${STORAGE_KEY}:history:${parsed.sessionId}`) {
+        const history = JSON.parse(localStorage.getItem(parsed.historyKey) || '{}');
+        for (const key of ['undoStack', 'redoStack', 'scoreEvents']) if (Array.isArray(history[key])) parsed[key] = history[key];
+      }
+      ensureDeckIds(parsed.deck);
+      const storedSpent = parsed.spentClues || [];
+      parsed.spentClues = ['singleJeopardy', 'doubleJeopardy'].flatMap(round => parsed.deck[round].categories.flatMap(cat =>
+        cat.clues.filter(clue => storedSpent.includes(clue.id) || storedSpent.includes(`${round === 'singleJeopardy' ? 'single_jeopardy' : 'double_jeopardy'}-${cat.name}-${clue.value}`)).map(clue => clue.id)));
+      parsed.deck = validateBackupDeck(parsed.deck);
+      const defaultSettings = gameState.settings;
+      Object.assign(gameState, Object.fromEntries(Object.keys(gameState).filter(key => Object.hasOwn(parsed, key)).map(key => [key, parsed[key]])));
+      gameState.settings = { ...defaultSettings, ...parsed.settings };
+      ensureDeckIds(gameState.deck);
+      const clues = ['singleJeopardy', 'doubleJeopardy'].flatMap(round =>
+        gameState.deck[round].categories.flatMap(cat => cat.clues.map(clue => ({ clue, round }))));
+      gameState.spentClues = clues.filter(({ clue, round }) => gameState.spentClues.includes(clue.id) ||
+        gameState.spentClues.includes(`${round === 'singleJeopardy' ? 'single_jeopardy' : 'double_jeopardy'}-${clue.category}-${clue.value}`)).map(({ clue }) => clue.id);
+      if (gameState.currentClue && !gameState.currentClue.id) {
+        gameState.currentClue = clues.find(({ clue }) => categoryKey(clue.category) === categoryKey(gameState.currentClue.category) &&
+          clue.question === gameState.currentClue.question)?.clue || null;
+      }
+      if (!parsed.clueStage) gameState.clueStage = gameState.currentClue ?
+        (gameState.currentClue.isDailyDouble && !gameState.currentWager ? 'wager' : 'answering') : 'idle';
+      if (!parsed.wageringTeamId && gameState.currentClue?.isDailyDouble) gameState.wageringTeamId = gameState.activeBuzzedTeamId;
+      if (!parsed.finalParticipants && gameState.gamePhase === 'final_jeopardy') {
+        gameState.finalParticipants = gameState.teams.filter(t => t.score > 0 || typeof t.finalWager === 'number')
+          .map(t => ({ teamId: t.id, startingScore: t.score - (t.finalResult === 'correct' ? t.finalWager : t.finalResult === 'incorrect' ? -t.finalWager : 0) }));
+        gameState.finalStage = gameState.teams.some(t => typeof t.finalWager === 'number') ? 'judging' : 'wager';
+      }
+      if (gameState.gamePhase === 'final_jeopardy' && gameState.finalStage === 'judging' && !gameState.currentClue) {
+        gameState.currentClue = gameState.deck.finalJeopardy;
+        gameState.clueStage = 'answering';
+      }
+      if (gameState.teams.length) {
+        Object.assign(gameState, validateGameplay(gameState, gameState.deck));
+        gameState.undoStack = validateUndoHistory(gameState.undoStack, gameState.deck);
+        gameState.redoStack = validateUndoHistory(gameState.redoStack, gameState.deck);
+        gameState.scoreEvents = validateScoreEvents(gameState.scoreEvents, gameState.teams);
+      }
       return true;
     }
   } catch (e) {
+    Object.assign(gameState, previous);
     console.warn("localStorage load failed (blocked or disabled):", e);
   }
   return false;
@@ -69,176 +168,177 @@ function resetGameState() {
       delete t.finalResult;
     });
   }
-  gameState.currentClue = null;
-  gameState.currentWager = null;
+  clearActiveClue();
+  gameState.finalParticipants = [];
+  gameState.finalStage = 'category';
   gameState.activeBuzzedTeamId = null;
   gameState.spentClues = [];
   gameState.categoryIntroIndex = null;
   gameState.gamePhase = 'setup';
+  gameState.undoStack = []; gameState.redoStack = []; gameState.scoreEvents = [];
+  historyGeneration++;
   saveStateToStorage();
 }
 
-/**
- * Robust Client-Side CSV Parser
- * Handles commas, double quotes, and simple escapes offline with zero dependencies.
- */
-function parseCSVText(text) {
-  const rows = [];
-  let row = [""];
-  let inQuotes = false;
-  
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    const nextChar = text[i + 1];
-    
-    if (char === '"') {
-      if (inQuotes && nextChar === '"') {
-        // Handle escaped double quote ""
-        row[row.length - 1] += '"';
-        i++; // Skip next quote
-      } else {
-        // Toggle quote state
-        inQuotes = !inQuotes;
-      }
-    } else if (char === ',' && !inQuotes) {
-      row.push('');
-    } else if ((char === '\r' || char === '\n') && !inQuotes) {
-      if (char === '\r' && nextChar === '\n') {
-        i++; // Handle CRLF
-      }
-      rows.push(row);
-      row = [''];
-    } else {
-      row[row.length - 1] += char;
-    }
-  }
-  
-  // Push final residual row
-  if (row.length > 1 || row[0] !== '') {
-    rows.push(row);
-  }
-  
-  return rows;
+function clearActiveClue() {
+  gameState.currentClue = null;
+  gameState.currentWager = null;
+  gameState.activeBuzzedTeamId = null;
+  gameState.wageringTeamId = null;
+  gameState.lockedOutTeamIds = [];
+  gameState.clueStage = 'idle';
+  gameState.answerVisible = false;
+  gameState.timer = null;
 }
 
-/**
- * Transforms flat CSV rows into the structured Jeopardy rounds deck.
- */
-function processCSVDeck(csvText) {
-  const rawRows = parseCSVText(csvText);
-  if (rawRows.length < 2) throw new Error("CSV file is empty or invalid.");
-  
-  // Detect headers
-  const headers = rawRows[0].map(h => h.trim().toLowerCase());
-  const colIndex = {
-    round: headers.indexOf("round"),
-    category: headers.indexOf("category"),
-    value: headers.indexOf("value"),
-    question: headers.indexOf("question"),
-    answer: headers.indexOf("answer"),
-    isDailyDouble: headers.indexOf("isdailydouble"),
-    mediaType: headers.indexOf("mediatype"),
-    mediaUrl: headers.indexOf("mediaurl")
-  };
-  
-  if (colIndex.round === -1 || colIndex.category === -1 || colIndex.question === -1 || colIndex.answer === -1) {
-    throw new Error("Missing required columns. Header row must contain: Round, Category, Question, Answer.");
-  }
-  
-  const deck = {
-    singleJeopardy: { categories: [] },
-    doubleJeopardy: { categories: [] },
-    finalJeopardy: null
-  };
-  
-  // Helper to map and get index of dynamic categories
-  const getCategory = (roundList, name) => {
-    let cat = roundList.find(c => c.name.toLowerCase() === name.toLowerCase());
-    if (!cat) {
-      cat = { name, clues: [] };
-      roundList.push(cat);
-    }
-    return cat;
-  };
-  
-  for (let i = 1; i < rawRows.length; i++) {
-    const row = rawRows[i];
-    if (row.length <= 1 && row[0] === '') continue; // Skip empty rows
-    
-    const roundVal = (row[colIndex.round] || "").trim().toLowerCase();
-    const categoryVal = (row[colIndex.category] || "").trim();
-    const valueStr = colIndex.value !== -1 ? (row[colIndex.value] || "").trim() : "";
-    const questionVal = (row[colIndex.question] || "").trim();
-    const answerVal = (row[colIndex.answer] || "").trim();
-    
-    const isDD = colIndex.isDailyDouble !== -1 ? 
-      (row[colIndex.isDailyDouble] || "").trim().toUpperCase() === "TRUE" : false;
-      
-    const mediaTypeVal = colIndex.mediaType !== -1 ? 
-      (row[colIndex.mediaType] || "none").trim().toLowerCase() : "none";
-      
-    const mediaUrlVal = colIndex.mediaUrl !== -1 ? 
-      (row[colIndex.mediaUrl] || "").trim() : "";
-      
-    if (!roundVal || !categoryVal || !questionVal || !answerVal) continue;
-    
-    const clueObj = {
-      category: categoryVal,
-      value: valueStr ? parseInt(valueStr, 10) : 0,
-      question: questionVal,
-      answer: answerVal,
-      isDailyDouble: isDD,
-      mediaType: mediaTypeVal,
-      mediaUrl: mediaUrlVal
-    };
-    
-    if (roundVal === 'single') {
-      const cat = getCategory(deck.singleJeopardy.categories, categoryVal);
-      cat.clues.push(clueObj);
-    } else if (roundVal === 'double') {
-      const cat = getCategory(deck.doubleJeopardy.categories, categoryVal);
-      cat.clues.push(clueObj);
-    } else if (roundVal === 'final') {
-      deck.finalJeopardy = {
-        category: categoryVal,
-        question: questionVal,
-        answer: answerVal,
-        mediaType: mediaTypeVal,
-        mediaUrl: mediaUrlVal
-      };
-    }
-  }
-  
-  // Sort clues inside categories by value to ensure orderly boards
-  const sortByValue = (a, b) => a.value - b.value;
-  deck.singleJeopardy.categories.forEach(cat => cat.clues.sort(sortByValue));
-  deck.doubleJeopardy.categories.forEach(cat => cat.clues.sort(sortByValue));
-  
-  return deck;
+function roundCategories() {
+  const round = gameState.gamePhase === 'double_jeopardy' ? 'doubleJeopardy' : 'singleJeopardy';
+  return gameState.deck?.[round]?.categories || [];
+}
+function maxRoundClueValue() {
+  return Math.max(0, ...roundCategories().flatMap(category => category.clues.map(clue => clue.value)));
+}
+function dailyDoubleLimit(team, maximum = maxRoundClueValue()) {
+  return Math.max(team?.score || 0, maximum);
 }
 
-// Sync command emitter
+function availablePhases() {
+  const phases = [];
+  if (gameState.deck.singleJeopardy.categories.length) phases.push('single_jeopardy');
+  if (gameState.deck.doubleJeopardy.categories.length) phases.push('double_jeopardy');
+  if (gameState.deck.finalJeopardy) phases.push('final_jeopardy');
+  return phases;
+}
+
+function nextGamePhase() {
+  const phases = availablePhases();
+  return phases[phases.indexOf(gameState.gamePhase) + 1] || 'completed';
+}
+
+function finalJudgingComplete() {
+  return gameState.finalParticipants.every(participant =>
+    gameState.teams.find(team => team.id === participant.teamId)?.finalResult);
+}
+
+function beginRound(phase) {
+  if (gameState.currentClue && gameState.gamePhase !== 'final_jeopardy') return false;
+  if (phase === 'completed' && gameState.gamePhase === 'final_jeopardy' && !finalJudgingComplete()) return false;
+  if (phase !== 'completed' && !availablePhases().includes(phase)) return false;
+  clearActiveClue();
+  gameState.gamePhase = phase;
+  gameState.categoryIntroIndex = ['single_jeopardy', 'double_jeopardy'].includes(phase) ? 0 : null;
+  if (phase !== 'completed') {
+    gameState.teams.forEach(team => { delete team.finalWager; delete team.finalResult; });
+    gameState.finalParticipants = phase === 'final_jeopardy' ? gameState.teams.filter(team => team.score > 0)
+      .map(team => ({ teamId: team.id, startingScore: team.score })) : [];
+    gameState.finalStage = phase === 'final_jeopardy' ? 'wager' : 'category';
+  }
+  return true;
+}
+
+function openGameClue(clue) {
+  if (gameState.currentClue || gameState.spentClues.includes(clue.id)) return false;
+  clearActiveClue();
+  gameState.currentClue = clue;
+  gameState.clueStage = clue.isDailyDouble ? 'wager' : 'answering';
+  return true;
+}
+
+function setDailyDoubleWager(teamId, wager) {
+  const clue = gameState.currentClue;
+  const team = gameState.teams.find(t => t.id === teamId);
+  const maximum = dailyDoubleLimit(team);
+  if (!team || !clue?.isDailyDouble || gameState.clueStage !== 'wager' || !Number.isSafeInteger(wager) || wager < 5 || wager > maximum) return false;
+  gameState.currentWager = wager;
+  gameState.wageringTeamId = teamId;
+  gameState.activeBuzzedTeamId = teamId;
+  gameState.clueStage = 'answering';
+  return true;
+}
+
+function applyClueGrade(teamId, result) {
+  const clue = gameState.currentClue;
+  if (!clue || gameState.gamePhase === 'final_jeopardy' || !['correct', 'incorrect', 'skip'].includes(result)) return null;
+  if (result !== 'skip') {
+    const team = gameState.teams.find(t => t.id === teamId);
+    if (!team || gameState.lockedOutTeamIds.includes(teamId) || gameState.clueStage !== 'answering') return null;
+    if (clue.isDailyDouble && gameState.wageringTeamId !== teamId) return null;
+    const points = clue.isDailyDouble ? gameState.currentWager : clue.value;
+    const score = team.score + (result === 'correct' ? points : -points);
+    if (!Number.isSafeInteger(points) || !Number.isSafeInteger(score)) return null;
+    team.score = score;
+    if (result === 'incorrect') gameState.lockedOutTeamIds.push(teamId);
+  }
+  const keepOpen = result === 'incorrect' && !clue.isDailyDouble && gameState.lockedOutTeamIds.length < gameState.teams.length;
+  gameState.activeBuzzedTeamId = null;
+  gameState.timer = null;
+  if (!keepOpen) {
+    if (!gameState.spentClues.includes(clue.id)) gameState.spentClues.push(clue.id);
+    clearActiveClue();
+  }
+  return { isCorrect: result === 'correct', isIncorrect: result === 'incorrect', keepOpen };
+}
+
+function applyFinalGrade(teamId, result) {
+  if (gameState.gamePhase !== 'final_jeopardy' || !['correct', 'incorrect'].includes(result) || gameState.finalStage !== 'judging') return false;
+  const participant = gameState.finalParticipants.find(p => p.teamId === teamId);
+  const team = gameState.teams.find(t => t.id === teamId);
+  if (!participant || !team || !Number.isSafeInteger(team.finalWager) || team.finalResult === result) return false;
+  const previous = team.finalResult === 'correct' ? team.finalWager : team.finalResult === 'incorrect' ? -team.finalWager : 0;
+  const score = team.score + (result === 'correct' ? team.finalWager : -team.finalWager) - previous;
+  if (!Number.isSafeInteger(score)) return false;
+  team.score = score;
+  team.finalResult = result;
+  gameState.timer = null;
+  return true;
+}
+
+function gradeClue(teamId, result) {
+  return recordGameChange(`${result === 'skip' ? 'Skip' : result} · ${gameState.currentClue?.category || 'clue'}`, () => applyClueGrade(teamId, result));
+}
+function gradeFinal(teamId, result) {
+  return recordGameChange(`${result} · Final · Team ${teamId}`, () => applyFinalGrade(teamId, result));
+}
+
+function timerRemaining(timer = gameState.timer, now = Date.now()) {
+  if (!timer) return 0;
+  return timer.paused ? timer.remaining : Math.max(0, timer.deadline - now);
+}
+
+function startGameTimer(kind, now = Date.now()) {
+  const seconds = kind === 'final' ? gameState.settings.finalSeconds : gameState.settings.responseSeconds;
+  gameState.timer = { kind, duration: seconds * 1000, deadline: now + seconds * 1000, paused: false };
+}
+
+function toggleGameTimer(now = Date.now()) {
+  const timer = gameState.timer;
+  if (!timer || timerRemaining(timer, now) === 0) return false;
+  if (timer.paused) { timer.deadline = now + timer.remaining; timer.paused = false; }
+  else { timer.remaining = timerRemaining(timer, now); timer.paused = true; }
+  return true;
+}
+
+function stateSnapshot(includeDeck = false, includeHistory = false) {
+  const state = { ...gameState };
+  if (!includeDeck) delete state.deck;
+  if (!includeHistory) { delete state.undoStack; delete state.redoStack; delete state.scoreEvents; }
+  return state;
+}
+
 function broadcastAction(action, payload = null) {
-  // 1. BroadcastChannel (modern samedomain tab sync)
+  gameState.revision = Math.max(Date.now(), gameState.revision + 1);
+  const message = { protocol: 1, role: 'host', sessionId: gameState.sessionId,
+    revision: gameState.revision, action, payload,
+    state: stateSnapshot(Boolean(payload?.fullSnapshot)), deckId: gameState.deck.id };
   if (broadcastChannel) {
-    try {
-      broadcastChannel.postMessage({ action, payload });
-    } catch (e) {
-      console.warn("BroadcastChannel postMessage failed:", e);
-    }
+    try { broadcastChannel.postMessage(message); } catch (error) { console.warn('Channel send failed:', error); }
   }
-  
-  // 2. Direct Window Messaging (Offline file:// protocol fallback)
   directWindows.forEach(win => {
-    try {
-      if (win && !win.closed) {
-        win.postMessage({ action, payload }, '*');
-      } else {
-        directWindows.delete(win);
-      }
-    } catch (e) {
-      console.warn("Failed to direct postMessage to child window:", e);
-      directWindows.delete(win);
-    }
+    try { if (win && !win.closed) win.postMessage(message, '*'); else directWindows.delete(win); }
+    catch { directWindows.delete(win); }
   });
+}
+
+function trustedWindowMessage(event) {
+  return event.origin === window.location.origin || (window.location.protocol === 'file:' && event.origin === 'null');
 }

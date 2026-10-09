@@ -3,148 +3,267 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Jeopardy Host Control Console</title>
+  <title>Jeopardy Game System</title>
   <link rel="stylesheet" href="src/css/style.css">
 </head>
 <body>
 
-  <!-- 1. Setup Panel Overlay -->
-  <div id="setup-container" class="setup-panel glass">
-    <h1 style="text-align: center; margin-bottom: 24px; color: var(--color-accent);">Jeopardy Setup Console</h1>
-    
-    <!-- Game Board File Upload -->
-    <div class="form-group">
-      <label for="csv-upload">Upload Game Board CSV</label>
-      <input type="file" id="csv-upload" accept=".csv" style="display: none;">
-      <button class="btn" id="csv-upload-trigger" style="width: 100%; justify-content: center;">
-        Choose Game Board CSV
-      </button>
-      <p id="upload-status" style="margin-top: 8px; font-size: 14px; color: var(--color-text-muted); text-align: center; font-style: italic;">No file selected.</p>
-    </div>
+  <!-- Immediate Query Parameter Routing -->
+  <script>
+    (function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const isBoardFile = window.location.pathname.endsWith('board.html');
+      const activeView = urlParams.get('view') || (isBoardFile ? 'board' : 'host');
 
-    <!-- Dynamic Teams selection -->
-    <div class="form-group">
-      <label for="teams-count">Number of Teams</label>
-      <select id="teams-count">
-        <option value="2">2 Teams</option>
-        <option value="3" selected>3 Teams</option>
-        <option value="4">4 Teams</option>
-      </select>
-    </div>
+      function initView() {
+        const hostRoot = document.getElementById('host-app-root');
+        const boardRoot = document.getElementById('board-app-root');
 
-    <!-- Team Inputs Container -->
-    <div id="team-setup-rows" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">
-      <!-- Dynamic Rows are drawn here -->
-    </div>
+        if (activeView === 'board') {
+          if (hostRoot) hostRoot.remove(); // Prune host console elements to prevent overhead
+          if (boardRoot) boardRoot.style.display = 'block';
+          document.title = "Jeopardy Board Display";
+        } else {
+          if (boardRoot) boardRoot.remove(); // Prune spectator board elements to prevent overhead
+          if (hostRoot) hostRoot.style.display = 'block';
+          document.title = "Jeopardy Host Control Console";
+        }
+      }
 
-    <button id="start-game-btn" class="btn btn-accent" style="width: 100%; justify-content: center; font-size: 16px; padding: 12px;" disabled>
-      Start Game Session
-    </button>
-  </div>
+      if (document.readyState !== 'loading') {
+        initView();
+      } else {
+        document.addEventListener('DOMContentLoaded', initView);
+      }
+    })();
+  </script>
 
-  <!-- 2. Active Game Dashboard Layout -->
-  <div id="active-game-container" style="display: none;" class="host-layout">
-    
-    <!-- Left Sidebar: Teams & Adjusters -->
-    <aside id="host-sidebar">
-      <h2 style="font-size: 20px; color: var(--color-accent); margin-bottom: 16px;">Host Panel</h2>
-      
-      <!-- Open Spectator Screen programmatic trigger -->
-      <button class="btn btn-accent" id="open-board-btn" style="width: 100%; justify-content: center; margin-bottom: 16px;">
-        Open Board Window
-      </button>
+  <!-- ==================== HOST PRESENTER SCREEN ==================== -->
+  <div id="host-app-root" style="display: none;">
+    <!-- 1. Setup Panel Overlay -->
+    <div id="setup-container" class="setup-panel glass">
+      <h1 style="text-align: center; margin-bottom: 24px; color: var(--color-accent);">Jeopardy Setup Console</h1>
 
-      <h3 style="font-size: 14px; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 8px;">Scoreboards</h3>
-      
-      <!-- List of active teams for manual override -->
-      <div id="host-team-list" class="team-list-sidebar">
-        <!-- Rendered dynamically -->
-      </div>
-
-      <div style="margin-top: auto;">
-        <button class="btn" id="reset-game-btn" style="width: 100%; justify-content: center; background: hsla(350, 89%, 60%, 0.1); border-color: hsla(350, 89%, 60%, 0.2); color: hsl(350, 89%, 75%);">
-          Reset Game Session
+      <!-- Game Board File Upload -->
+      <div class="form-group">
+        <label for="csv-upload">Upload Game Board CSV</label>
+        <input type="file" id="csv-upload" accept=".csv" style="display: none;">
+        <button class="btn" id="csv-upload-trigger" style="width: 100%; justify-content: center;">
+          Choose Game Board CSV
         </button>
-      </div>
-    </aside>
-
-    <!-- Main Board Console Area -->
-    <main id="host-main">
-      
-      <!-- Header Dashboard controllers -->
-      <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-glass);">
-        <h2 id="host-round-title" style="font-size: 24px; text-transform: uppercase;">Single Jeopardy</h2>
-        <div style="display: flex; gap: 10px;" id="round-actions-container">
-          <button class="btn" id="btn-goto-double" style="display: none;">Next Round: Double Jeopardy</button>
-          <button class="btn" id="btn-goto-final" style="display: none;">Next Round: Final Jeopardy</button>
-          <button class="btn" id="btn-goto-complete" style="display: none;">Complete Game Session</button>
+        <p id="upload-status" style="margin-top: 8px; font-size: 14px; color: var(--color-text-muted); text-align: center; font-style: italic;">No file selected.</p>
+        <div class="import-options">
+          <label>Text encoding <select id="csv-encoding"><option value="utf-8">UTF-8 (recommended)</option><option value="windows-1252">Windows-1252</option><option value="utf-16le">UTF-16 LE</option></select></label>
+          <label>Separator <select id="csv-delimiter"><option value="">Detect automatically</option><option value=",">Comma</option><option value=";">Semicolon</option><option value="tab">Tab</option></select></label>
         </div>
-      </header>
-
-      <!-- Host grid cards grid view -->
-      <div id="host-clue-grid" class="host-grid">
-        <!-- Renders dynamically -->
+        <details id="import-report" hidden><summary>Deck preview and diagnostics</summary><pre id="import-details"></pre></details>
       </div>
 
-      <!-- Active Clue Host Control console -->
-      <section id="host-clue-controller" class="host-control-drawer" style="display: none;">
-        
-        <div class="host-question-display">
-          <h4 id="controller-category" style="font-size: 14px; text-transform: uppercase; color: var(--color-accent); margin-bottom: 4px;">Category</h4>
-          <p id="controller-question" style="font-size: 18px; font-weight: 500;">Active clue prompt displayed here...</p>
-          <p id="controller-answer" class="host-ans-reveal">Correct Answer: Mitochondria</p>
+      <button id="edit-deck-setup" class="btn" disabled>Edit loaded deck</button>
+      <button id="csv-template" class="btn">Download CSV template</button>
+      <button id="restore-session-setup" class="btn">Restore saved session</button>
+      <p id="setup-session-status" role="status"></p>
+      <!-- Dynamic Teams selection -->
+      <div class="form-group">
+        <label for="teams-count">Number of Teams</label>
+        <select id="teams-count">
+          <option value="2">2 Teams</option>
+          <option value="3" selected>3 Teams</option>
+          <option value="4">4 Teams</option>
+        </select>
+      </div>
+
+      <!-- Team Inputs Container -->
+      <div id="team-setup-rows" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">
+        <!-- Dynamic Rows are drawn here -->
+      </div>
+
+      <button id="start-game-btn" class="btn btn-accent" style="width: 100%; justify-content: center; font-size: 16px; padding: 12px;" disabled>
+        Start Game Session
+      </button>
+    </div>
+
+    <!-- 2. Active Game Dashboard Layout -->
+    <div id="active-game-container" style="display: none;" class="host-layout">
+
+      <!-- Left Sidebar: Teams & Adjusters -->
+      <aside id="host-sidebar">
+        <h2 style="font-size: 20px; color: var(--color-accent); margin-bottom: 16px;">Host Panel</h2>
+
+        <!-- Open Spectator Screen programmatic trigger -->
+        <button class="btn btn-accent" id="open-board-btn" style="width: 100%; justify-content: center; margin-bottom: 16px;">
+          Open Board Window
+        </button>
+
+        <p id="storage-status" role="status"></p>
+        <p id="host-connection-status" role="status">Board not connected</p>
+        <h3 style="font-size: 14px; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 8px;">Scoreboards</h3>
+
+        <!-- List of active teams for manual override -->
+        <div id="host-team-list" class="team-list-sidebar">
+          <!-- Rendered dynamically -->
         </div>
 
-        <!-- Daily Double Wagering Panel -->
-        <div id="dd-wager-panel" class="glass" style="padding: 16px; border-radius: 8px; display: none;">
-          <h4 style="margin-bottom: 10px; color: var(--color-accent);">Daily Double Wagering</h4>
-          <div style="display: flex; gap: 10px; align-items: center;">
-            <label for="dd-team-select">Wagering Team:</label>
-            <select id="dd-team-select" style="width: auto; padding: 6px 12px; background: #000; border: 1px solid var(--border-glass); border-radius: 6px; color:#fff;"></select>
-            
-            <label for="dd-wager-input">Wager Amount:</label>
-            <input type="text" id="dd-wager-input" placeholder="$ amount" style="width: 100px; padding: 6px; background: #000; border: 1px solid var(--border-glass); border-radius: 6px; color:#fff; text-align: center;">
-            
-            <button class="btn btn-accent" id="dd-submit-wager-btn" style="padding: 6px 16px;">Set Wager</button>
+        <!-- Add Settings Sidebar UI -->
+        <div class="sidebar-section-divider" style="border-top: 1px solid var(--border-glass); margin-top: 20px; padding-top: 20px;">
+          <h3 style="font-size: 14px; text-transform: uppercase; color: var(--color-accent); margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+            ⚙️ Game Settings
+          </h3>
+
+          <!-- Sound On/Off Switch -->
+          <div class="form-group" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <span style="font-size: 13px; color: var(--color-text-muted);">Sound Effects</span>
+            <button class="btn btn-accent" id="host-sound-toggle-btn" style="padding: 6px 12px; font-size: 12px; border-radius: 20px;">
+              🔊 On
+            </button>
           </div>
+
+          <!-- Clue Font Size Slider -->
+          <div class="form-group" style="margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+              <span style="font-size: 13px; color: var(--color-text-muted);">Clue Font Size</span>
+              <span id="font-scale-display" style="font-size: 13px; color: var(--color-accent); font-weight: bold;">100%</span>
+            </div>
+            <input type="range" id="host-font-scale-slider" min="0.6" max="1.8" step="0.1" value="1.0" style="width: 100%; cursor: pointer;">
+          </div>
+
+          <label><input id="low-effects" type="checkbox"> Lower visual effects</label>
+          <div class="timer-settings">
+            <label for="response-seconds">Response seconds</label><input id="response-seconds" type="number" min="1" max="120" value="5">
+            <label for="final-seconds">Final seconds</label><input id="final-seconds" type="number" min="1" max="120" value="30">
+            <p id="host-timer-status" role="status">Timer ready</p>
+            <button id="timer-toggle" class="btn" disabled>Pause timer</button>
+          </div>
+          <!-- Collapsible Edit Teams Section -->
+          <details class="glass" style="padding: 10px; border-radius: 8px; font-size: 13px; margin-bottom: 16px;">
+            <summary style="cursor: pointer; color: var(--color-text-muted); font-weight: 600;">Edit Teams Mid-Game</summary>
+            <div id="host-edit-teams-container" style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+              <!-- Rows dynamically generated based on active teams -->
+            </div>
+          </details>
         </div>
 
-        <!-- Buzzer buttons claims triggers -->
-        <div id="buzzer-action-panel">
-          <h4 style="font-size: 14px; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 8px;">Buzzer Board Claim</h4>
-          <div id="buzzer-teams-row" class="host-button-row">
-            <!-- Dynamic buzzer trigger buttons -->
+        <button id="edit-deck" class="btn" disabled>Edit loaded deck</button>
+        <div class="session-tools">
+          <div class="host-button-row"><button id="undo-score" class="btn" disabled>Undo</button><button id="redo-score" class="btn" disabled>Redo</button></div>
+          <p id="history-status" role="status"></p>
+          <button id="export-session" class="btn">Download session backup</button>
+          <button id="restore-session" class="btn">Restore session backup</button>
+          <input id="session-upload" type="file" accept=".json" hidden>
+          <p id="session-status" role="status"></p>
+        </div>
+        <div style="margin-top: auto;">
+          <button class="btn" id="reset-game-btn" style="width: 100%; justify-content: center; background: hsla(350, 89%, 60%, 0.1); border-color: hsla(350, 89%, 60%, 0.2); color: hsl(350, 89%, 75%);">
+            Reset Game Session
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Board Console Area -->
+      <main id="host-main">
+
+        <!-- Header Dashboard controllers -->
+        <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-glass);">
+          <h2 id="host-round-title" style="font-size: 24px; text-transform: uppercase;">Single Jeopardy</h2>
+          <div style="display: flex; gap: 10px;" id="round-actions-container">
+            <button class="btn" id="btn-goto-double" style="display: none;">Next Round: Double Jeopardy</button>
+            <button class="btn" id="btn-goto-final" style="display: none;">Next Round: Final Jeopardy</button>
+            <button class="btn" id="btn-goto-complete" style="display: none;">Complete Game Session</button>
           </div>
+        </header>
+
+        <!-- Host grid cards grid view -->
+        <div id="host-clue-grid" class="host-grid">
+          <!-- Renders dynamically -->
         </div>
 
-        <!-- Quick Score adjustment panel -->
-        <div id="quick-score-panel" style="border-top: 1px solid var(--border-glass); padding-top: 16px;">
-          <h4 style="font-size: 14px; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 8px;">Quick Score Assign</h4>
-          <div id="quick-score-teams-row" class="host-button-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
-            <!-- Rendered dynamically: (+/- value) buttons per team -->
-          </div>
-        </div>
+        <!-- Active Clue Host Control console -->
+        <section id="host-clue-controller" class="host-control-drawer" style="display: none;">
 
-        <!-- Question Judging panels -->
-        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-glass); padding-top: 16px;">
-          <div style="display: flex; gap: 10px;">
-            <button class="btn btn-correct" id="host-clue-correct-btn" disabled>Correct</button>
-            <button class="btn btn-incorrect" id="host-clue-incorrect-btn" disabled>Incorrect</button>
+          <p class="keyboard-help">Keyboard: 1–4 select a team · C correct · I incorrect · R reveal · S skip · P pause</p>
+          <div class="host-question-display">
+            <h4 id="controller-category" style="font-size: 14px; text-transform: uppercase; color: var(--color-accent); margin-bottom: 4px;">Category</h4>
+            <p id="controller-question" style="font-size: 18px; font-weight: 500;">Active clue prompt displayed here...</p>
+            <p id="controller-answer" class="host-ans-reveal">Correct Answer: Mitochondria</p>
           </div>
-          <div style="display: flex; gap: 10px;">
-            <button class="btn btn-accent" id="host-reveal-answer-btn">Reveal Answer</button>
-            <button class="btn" id="host-clue-skip-btn">Skip / Nobody Answered</button>
+
+          <!-- Daily Double Wagering Panel -->
+          <div id="dd-wager-panel" class="glass" style="padding: 16px; border-radius: 8px; display: none;">
+            <h4 style="margin-bottom: 10px; color: var(--color-accent);">Daily Double Wagering</h4>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <label for="dd-team-select">Wagering Team:</label>
+              <select id="dd-team-select" class="input-field" style="--input-width: auto; --input-pad: 6px 12px; --input-font: 14px; border-radius: 6px;"></select>
+
+              <label for="dd-wager-input">Wager Amount:</label>
+              <input type="text" id="dd-wager-input" class="input-field" placeholder="$ amount" style="--input-width: 100px; --input-pad: 6px; --input-font: 12px; border-radius: 6px; text-align: center;">
+
+              <button class="btn btn-accent" id="dd-submit-wager-btn" style="padding: 6px 16px;">Set Wager</button>
+            </div>
+            <div id="dd-wager-error" style="color: var(--color-incorrect); font-size: 13px; margin-top: 8px; display: none;"></div>
           </div>
-        </div>
 
-      </section>
+          <!-- Buzzer buttons claims triggers -->
+          <div id="buzzer-action-panel">
+            <h4 style="font-size: 14px; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 8px;">Buzzer Board Claim</h4>
+            <div id="buzzer-teams-row" class="host-button-row">
+              <!-- Dynamic buzzer trigger buttons -->
+            </div>
+          </div>
 
-    </main>
+          <!-- Quick Score adjustment panel -->
+          <div id="quick-score-panel" style="border-top: 1px solid var(--border-glass); padding-top: 16px;">
+            <h4 style="font-size: 14px; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 8px;">Quick Score Assign</h4>
+            <div id="quick-score-teams-row" class="host-button-row" style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <!-- Rendered dynamically: (+/- value) buttons per team -->
+            </div>
+          </div>
+
+          <!-- Question Judging panels -->
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-glass); padding-top: 16px;">
+            <div style="display: flex; gap: 10px;">
+              <button class="btn btn-correct" id="host-clue-correct-btn" disabled>Correct</button>
+              <button class="btn btn-incorrect" id="host-clue-incorrect-btn" disabled>Incorrect</button>
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn btn-accent" id="host-reveal-answer-btn">Reveal Answer</button>
+              <button class="btn" id="host-clue-skip-btn">Skip / Nobody Answered</button>
+            </div>
+          </div>
+
+        </section>
+
+      </main>
+    </div>
   </div>
+
+  <dialog id="deck-editor" aria-labelledby="editor-title">
+    <h2 id="editor-title">Edit loaded deck</h2>
+    <p>Finish active clues before editing. Saving preserves scores and spent clues, and starts new undo history.</p>
+    <label for="editor-clue">Clue</label><select id="editor-clue"></select>
+    <div class="editor-fields">
+      <label>Category title<input id="editor-category" type="text" dir="auto"></label>
+      <label>Value<input id="editor-value" type="text" inputmode="numeric"></label>
+      <label class="editor-wide">Question<textarea id="editor-question" rows="4" dir="auto"></textarea></label>
+      <label class="editor-wide">Answer<textarea id="editor-answer" rows="2" dir="auto"></textarea></label>
+      <label><input id="editor-isDailyDouble" type="checkbox"> Daily Double</label>
+      <label>Media type<select id="editor-mediaType"><option value="none">None</option><option value="image">Image</option></select></label>
+      <label class="editor-wide">Image URL or path (relative to this app)<input id="editor-mediaUrl" type="text"></label>
+    </div>
+    <pre id="editor-preview" dir="auto"></pre>
+    <p id="editor-status" role="status"></p>
+    <div class="host-button-row">
+      <button id="category-earlier" class="btn">Category earlier</button><button id="category-later" class="btn">Category later</button>
+      <button id="editor-save" class="btn btn-correct">Save clue changes</button>
+      <button id="editor-export" class="btn">Download revised CSV</button><button id="editor-close" class="btn">Close</button>
+    </div>
+  </dialog>
 
   <!-- State & Audio Script Links -->
+  <script src="src/js/deck.js"></script>
   <script src="src/js/app.js"></script>
+  <script src="src/js/session-tools.js"></script>
   <script src="src/js/audio.js"></script>
+  <script src="src/js/deck-editor.js"></script>
   <script src="src/js/host-ui.js"></script>
 </body>
 </html>
