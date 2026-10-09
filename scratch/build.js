@@ -1,7 +1,7 @@
 /* Build portable HTML; readable source remains the uncompressed fallback. */
 const fs = require('node:fs');
 const path = require('node:path');
-const zlib = require('node:zlib');
+const { BASE85_ALPHABET, encodeBase85, decodeBase85 } = require('./payload.js');
 const root = path.resolve(__dirname, '..');
 const scripts = ['deck', 'app', 'session-tools', 'audio', 'board-ui', 'deck-editor', 'host-ui'];
 
@@ -61,23 +61,34 @@ async function optimizeHTML(html) {
   });
 }
 
-function packageHTML(html) {
-  const payload = zlib.gzipSync(Buffer.from(html, 'utf8'), { level: 9 }).toString('base64');
+async function packageHTML(html, { encoding = 'base85' } = {}) {
+  if (!['base85', 'base64'].includes(encoding)) throw new Error('Unknown payload encoding.');
+  const { gzipAsync } = require('@gfx/zopfli');
+  const bytes = Buffer.from(await gzipAsync(Buffer.from(html, 'utf8'), { numiterations: 15 }));
+  const payload = encoding === 'base85' ? encodeBase85(bytes) : bytes.toString('base64');
+  const decoder = encoding === 'base85'
+    ? `const BASE85_ALPHABET = ${JSON.stringify(BASE85_ALPHABET)};\n${decodeBase85.toString()}\nconst bytes = decodeBase85(data.textContent, Number(data.dataset.bytes));`
+    : "const bytes = Uint8Array.from(atob(data.textContent), c => c.charCodeAt(0));";
+  const loader = await optimizeJavaScript(`
+    (async () => {
+      try {
+        if (typeof DecompressionStream !== 'function') throw new Error('This browser needs the uncompressed edition. Use index.html or build with --plain.');
+        const data = document.getElementById('payload');
+        ${decoder}
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+        const html = await new Response(stream).text();
+        document.open(); document.write(html); document.close();
+      } catch (error) {
+        const status = document.getElementById('loader');
+        if (status) status.textContent = 'Unable to load: ' + error.message;
+      }
+    })();`);
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jeopardy</title></head>
 <body style="background:#0c101b;color:#fff;font-family:system-ui;margin:40px">
 <p id="loader" role="status">Loading Jeopardy…</p>
-<script>
-(async () => {
-  try {
-    if (!('DecompressionStream' in window)) throw new Error('This browser needs the uncompressed edition. Use index.html or build with --plain.');
-    const bytes = Uint8Array.from(atob('${payload}'), c => c.charCodeAt(0));
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-    const html = await new Response(stream).text();
-    document.open(); document.write(html); document.close();
-  } catch (error) { document.getElementById('loader').textContent = 'Unable to load: ' + error.message; }
-})();
-</script></body></html>`;
+<script id="payload" type="application/octet-stream" data-bytes="${bytes.length}" data-encoding="${encoding}">${payload}</script>
+<script>${loader}</script></body></html>`;
 }
 
 async function build() {
@@ -88,7 +99,7 @@ async function build() {
   const inline = inlineSource(html);
   const plain = process.argv.includes('--plain');
   const optimized = plain ? inline : await optimizeHTML(inline);
-  const output = plain ? inline : packageHTML(optimized);
+  const output = plain ? inline : await packageHTML(optimized, { encoding: process.argv.includes('--base64') ? 'base64' : 'base85' });
   fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
   const file = path.join(root, 'dist', plain ? 'jeopardy_uncompressed.html' : 'jeopardy_all_in_one.html');
   fs.writeFileSync(file, output);

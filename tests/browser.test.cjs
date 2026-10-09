@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
+const { encodeBase85 } = require('../scratch/payload.js');
+const { payloadMetadata } = require('./package-helper.cjs');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
 let browser, server, base;
 const header = 'Round,Category,Value,Question,Answer,IsDailyDouble,MediaType,MediaURL\n';
@@ -55,6 +57,29 @@ async function openBoard({ host }) {
   return board;
 }
 const state = page => page.evaluate(() => JSON.parse(JSON.stringify(gameState)));
+test('standalone loader reports damaged payloads and unsupported decompression', async () => {
+  const original = fs.readFileSync('dist/jeopardy_all_in_one.html', 'utf8');
+  const metadata = payloadMetadata(original);
+  const corruptedBytes = Buffer.from(metadata.bytes);
+  corruptedBytes[0] ^= 255;
+  const damagedGzip = metadata.encoding === 'base85' ? encodeBase85(corruptedBytes) : corruptedBytes.toString('base64');
+  for (const kind of ['invalid-data', 'damaged-gzip', 'unsupported']) {
+    const context = await browser.newContext(), page = await context.newPage(), errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    if (kind === 'unsupported') await context.addInitScript(() => { window.DecompressionStream = undefined; });
+    const payload = kind === 'invalid-data' ? '~' + metadata.text.slice(1) : kind === 'damaged-gzip' ? damagedGzip : metadata.text;
+    await page.route('**/dist/jeopardy_all_in_one.html', route => route.fulfill({ contentType: 'text/html', body: original.replace(metadata.text, () => payload) }));
+    try {
+      await page.goto(`${base}/dist/jeopardy_all_in_one.html`);
+      await page.waitForFunction(() => document.getElementById('loader')?.textContent.startsWith('Unable to load:'));
+      const message = await page.locator('#loader').textContent();
+      if (kind === 'unsupported') assert.ok(message.includes('uncompressed edition'));
+      if (kind === 'invalid-data' && metadata.encoding === 'base85') assert.ok(message.includes('Invalid packaged data'));
+      assert.equal(await page.locator('#host-app-root').count(), 0);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  }
+});
 async function withGame(csv, options, run) {
   const game = await setup(csv, options);
   try { await run(game); assert.deepEqual(game.errors, []); } finally { await game.context.close(); }

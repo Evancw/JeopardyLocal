@@ -5,7 +5,8 @@
     "build": "node scratch/build.js",
     "build:plain": "node scratch/build.js --plain",
     "test": "node --test tests/core.test.cjs tests/build.test.cjs",
-    "test:browser": "node --test tests/browser.test.cjs"
+    "test:browser": "node --test tests/browser.test.cjs",
+    "test:package-core": "node --test tests/package-core.test.cjs"
   },
   "engines": { "node": ">=18" },
   "devDependencies": {

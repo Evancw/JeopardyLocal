@@ -2,11 +2,24 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
+let optimizedBundle = null;
+if (process.env.CORE_PACKAGE_ENTRY) {
+  const { unpackPackage } = require('./package-helper.cjs');
+  const html = unpackPackage(fs.readFileSync(process.env.CORE_PACKAGE_ENTRY, 'utf8'));
+  optimizedBundle = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)?.[1];
+  if (!optimizedBundle) throw new Error('Optimized application bundle not found.');
+}
 function engine() {
   const storage = new Map();
   const ctx = vm.createContext({ console, Date, setTimeout, clearTimeout, BroadcastChannel: class { postMessage() {} },
     localStorage: { getItem: k => storage.get(k), setItem: (k, v) => storage.set(k, v) } });
-  for (const file of ['deck', 'app', 'session-tools', 'deck-editor']) vm.runInContext(fs.readFileSync(`src/js/${file}.js`, 'utf8'), ctx);
+  if (optimizedBundle) {
+    // Register UI startup without running it in this logic-only context.
+    ctx.document = { readyState: 'loading', addEventListener() {}, getElementById() { return null; } };
+    vm.runInContext(optimizedBundle, ctx);
+  } else {
+    for (const file of ['deck', 'app', 'session-tools', 'deck-editor']) vm.runInContext(fs.readFileSync(`src/js/${file}.js`, 'utf8'), ctx);
+  }
   return ctx;
 }
 const header = 'Round,Category,Value,Question,Answer,IsDailyDouble,MediaType,MediaURL\n';
@@ -158,7 +171,7 @@ test('Final music schedules the configured duration with one oscillator', () => 
     createOscillator() { oscillators++; return { frequency:param(), connect(){}, disconnect(){}, start(){}, stop(time){stops.push(time);} }; }
     createGain() { return { gain:param(), connect(){}, disconnect(){} }; }
   } };
-  vm.runInContext(fs.readFileSync('src/js/audio.js', 'utf8'), e);
+  if (!optimizedBundle) vm.runInContext(fs.readFileSync('src/js/audio.js', 'utf8'), e);
   vm.runInContext('gameAudio.playFinalJeopardy(10)', e);
   assert.equal(oscillators, 1);
   assert.equal(stops[0], 110.8);
