@@ -275,12 +275,13 @@ h1, h2, h3, h4 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   z-index: 1000;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.4s ease;
-  padding: 40px;
+  padding: 80px 24px 24px;
+  overflow-y: auto;
 }
 
 .clue-overlay.active {
@@ -296,11 +297,13 @@ h1, h2, h3, h4 {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 30px;
+  gap: clamp(12px, 2vh, 30px);
+  margin: auto 0;
+  flex-shrink: 0;
 }
 
 .clue-text {
-  font-size: calc(40px * var(--clue-font-size-multiplier, 1));
+  font-size: calc(clamp(22px, 4vw, 40px) * var(--clue-font-size-multiplier, 1));
   font-weight: 600;
   line-height: 1.4;
   text-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -359,7 +362,7 @@ h1, h2, h3, h4 {
 
 /* Timer Bar */
 .timer-bar-container {
-  width: 300px;
+  width: min(25vw, 240px);
   height: 8px;
   background: var(--border-glass);
   border-radius: 4px;
@@ -371,7 +374,8 @@ h1, h2, h3, h4 {
   width: 100%;
   background: var(--color-accent);
   box-shadow: 0 0 10px var(--color-accent-glow);
-  transition: width 0.1s linear;
+  transition: none;
+  transform-origin: left;
 }
 
 .timer-bar-fill.warning {
@@ -726,14 +730,9 @@ h1, h2, h3, h4 {
 #import-details { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; padding: 12px; font-size: 13px; }
 
 /* Structured clues stay readable and can scroll instead of clipping above the viewport. */
-.clue-overlay { justify-content: flex-start; overflow-y: auto; padding: 80px 24px 24px; }
-.clue-zoom-content { margin: auto 0; flex-shrink: 0; gap: clamp(12px, 2vh, 30px); }
-.clue-text { font-size: calc(clamp(22px, 4vw, 40px) * var(--clue-font-size-multiplier, 1)); }
 .clue-text, .clue-answer-text, #controller-question, .host-card-preview { white-space: pre-wrap; overflow-wrap: anywhere; }
 .category-title, .dd-title, .score-team-name { overflow-wrap: anywhere; }
 #countdown-display { position: fixed; top: 16px; right: 16px; z-index: 2000; padding: 12px; background: var(--bg-dark); border-radius: 8px; }
-.timer-bar-container { width: min(25vw, 240px); }
-.timer-bar-fill { transform-origin: left; transition: none; }
 .timer-settings { display: grid; grid-template-columns: 1fr 72px; gap: 8px; margin-bottom: 16px; align-items: center; }
 .timer-settings input { width: 72px; padding: 6px; }
 .timer-settings p, .timer-settings button { grid-column: 1 / -1; }

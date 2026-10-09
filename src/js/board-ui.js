@@ -3,14 +3,6 @@
  * Manages grids, layouts, animations, and sound triggers in response to Broadcast messages.
  */
 
-function onReady(fn) {
-  if (document.readyState !== 'loading') {
-    fn();
-  } else {
-    document.addEventListener('DOMContentLoaded', fn);
-  }
-}
-
 onReady(() => {
   const urlParams = new URLSearchParams(window.location.search);
   const isBoardFile = window.location.pathname.endsWith('board.html');

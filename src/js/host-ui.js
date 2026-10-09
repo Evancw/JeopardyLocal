@@ -3,14 +3,6 @@
  * Coordinates inputs, CSV loading, dual-screen window launching, judging, and synchronization.
  */
 
-function onReady(fn) {
-  if (document.readyState !== 'loading') {
-    fn();
-  } else {
-    document.addEventListener('DOMContentLoaded', fn);
-  }
-}
-
 onReady(() => {
   const urlParams = new URLSearchParams(window.location.search);
   const isHostFile = window.location.pathname.endsWith('host.html');
@@ -29,7 +21,6 @@ onReady(() => {
 
   // Elements - Active Dashboard
   const activeGameContainer = document.getElementById('active-game-container');
-  const hostSidebar = document.getElementById('host-sidebar');
   const hostTeamList = document.getElementById('host-team-list');
   const hostRoundTitle = document.getElementById('host-round-title');
   const hostClueGrid = document.getElementById('host-clue-grid');
@@ -545,13 +536,13 @@ onReady(() => {
       if (gameState.deck.finalJeopardy) {
         gameState.finalStage = 'category';
         publishChange('SHOW_FINAL_CATEGORY', { category: gameState.deck.finalJeopardy.category });
-    }
+      }
     },
     'host-final-reveal-ans-btn': () => {
       if (gameState.deck.finalJeopardy) {
         gameState.answerVisible = true;
         publishChange('REVEAL_ANSWER', { answer: gameState.deck.finalJeopardy.answer });
-    }
+      }
     }
   };
 
@@ -1084,10 +1075,7 @@ onReady(() => {
   document.getElementById('undo-score')?.addEventListener('click', () => restoreHistory(false));
   document.getElementById('redo-score')?.addEventListener('click', () => restoreHistory(true));
   document.getElementById('export-session')?.addEventListener('click', () => {
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([exportSessionBackup()], { type: 'application/json' }));
-    link.download = 'jeopardy-session.json'; link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    downloadText(exportSessionBackup(), 'jeopardy-session.json', 'application/json');
   });
   const sessionInput = document.getElementById('session-upload');
   ['restore-session', 'restore-session-setup'].forEach(id => document.getElementById(id)?.addEventListener('click', () => sessionInput.click()));

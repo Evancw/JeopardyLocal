@@ -52,6 +52,14 @@ const gameState = {
 };
 
 // State Helpers
+function onReady(fn) {
+  if (document.readyState !== 'loading') {
+    fn();
+  } else {
+    document.addEventListener('DOMContentLoaded', fn);
+  }
+}
+
 const STORAGE_KEY = 'jeopardy_local_state';
 
 function isHostView() {
