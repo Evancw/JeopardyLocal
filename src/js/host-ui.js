@@ -155,8 +155,7 @@ onReady(() => {
       const updateTeam = () => {
         team.name = nameInput.value.trim() || `Team ${index + 1}`;
         team.color = colorInput.value;
-        scheduleSettingsSave();
-        broadcastState();
+        publishChange('SYNC_STATE', null, true);
         renderSidebarScoreboards();
       };
       
@@ -189,6 +188,11 @@ onReady(() => {
     broadcastAction('SYNC_STATE', { fullSnapshot });
   }
 
+  function publishChange(action = 'SYNC_STATE', payload = null, delayed = false) {
+    (delayed ? scheduleSettingsSave : saveStateToStorage)();
+    broadcastAction(action, payload);
+  }
+
   // Wire settings element event listeners
   const hostSoundToggleBtn = document.getElementById('host-sound-toggle-btn');
   const hostFontScaleSlider = document.getElementById('host-font-scale-slider');
@@ -199,8 +203,7 @@ onReady(() => {
       if (!gameState.settings) gameState.settings = {};
       gameState.settings.soundEnabled = !gameState.settings.soundEnabled;
       
-      saveStateToStorage();
-      broadcastState();
+      publishChange();
       initSettingsUI();
     });
   }
@@ -215,8 +218,7 @@ onReady(() => {
         fontScaleDisplay.textContent = Math.round(val * 100) + '%';
       }
       
-      scheduleSettingsSave();
-      broadcastState();
+      publishChange('SYNC_STATE', null, true);
     });
   }
 
@@ -226,7 +228,7 @@ onReady(() => {
     lowEffects.addEventListener('change', () => {
       gameState.settings.lowEffects = lowEffects.checked;
       document.documentElement.classList.toggle('effects-simple', lowEffects.checked);
-      scheduleSettingsSave(); broadcastState();
+      publishChange('SYNC_STATE', null, true);
     });
     document.documentElement.classList.toggle('effects-simple', lowEffects.checked);
   }
@@ -242,14 +244,13 @@ onReady(() => {
         return;
       }
       gameState.settings[setting] = seconds;
-      saveStateToStorage(); broadcastState();
+      publishChange();
     });
   });
   const timerToggle = document.getElementById('timer-toggle');
   timerToggle?.addEventListener('click', () => {
     if (!toggleGameTimer()) return;
-    saveStateToStorage();
-    broadcastAction(gameState.timer.paused ? 'PAUSE_TIMER' : 'RESUME_TIMER');
+    publishChange(gameState.timer.paused ? 'PAUSE_TIMER' : 'RESUME_TIMER');
   });
   const timerDisplayInterval = setInterval(() => {
     const timer = gameState.timer;
@@ -374,8 +375,7 @@ onReady(() => {
     gameState.currentWager = null;
     gameState.activeBuzzedTeamId = null;
 
-    saveStateToStorage();
-    broadcastState();
+    publishChange();
     
     launchActiveDashboard();
   });
@@ -423,8 +423,7 @@ onReady(() => {
         const val = /^-?\d+$/.test(text) ? Number(text) : NaN;
         if (Number.isSafeInteger(val)) {
           recordGameChange(`Set ${team.name}'s score`, () => { team.score = val; return true; });
-          saveStateToStorage();
-          broadcastState();
+          publishChange();
           renderSidebarScoreboards();
         }
       });
@@ -438,8 +437,7 @@ onReady(() => {
     if (team) {
       if (!Number.isSafeInteger(team.score + delta)) return;
       recordGameChange(`Adjust ${team.name}'s score`, () => { team.score += delta; return true; });
-      saveStateToStorage();
-      broadcastState();
+      publishChange();
       renderSidebarScoreboards();
     }
   }
@@ -472,9 +470,7 @@ onReady(() => {
 
   function advanceRound(nextPhase) {
     if (!beginRound(nextPhase)) return;
-    saveStateToStorage();
-    broadcastAction('SET_PHASE', { gamePhase: nextPhase });
-    broadcastState();
+    publishChange('SET_PHASE', { gamePhase: nextPhase });
     hostClueController.style.display = 'none';
     renderActiveGameUI();
   }
@@ -490,7 +486,7 @@ onReady(() => {
     const categories = roundCategories();
     const next = gameState.categoryIntroIndex + direction;
     gameState.categoryIntroIndex = direction === 0 || next >= categories.length ? null : next;
-    saveStateToStorage(); broadcastState(); renderActiveGameUI();
+    publishChange(); renderActiveGameUI();
   }
   function revealFinalClue() {
     // Validate all wagers
@@ -533,12 +529,7 @@ onReady(() => {
       team.finalWager = data.wager;
     });
 
-    saveStateToStorage();
-
-    // Broadcast reveal Final Jeopardy clue (which triggers music on spectator screen)
-    if (gameState.deck.finalJeopardy) {
-      broadcastAction('SHOW_FINAL_CLUE', { clue: gameState.deck.finalJeopardy });
-    }
+    publishChange('SHOW_FINAL_CLUE', { clue: gameState.deck.finalJeopardy });
 
     // Redraw panel to Judging View
     renderActiveGameUI();
@@ -551,17 +542,15 @@ onReady(() => {
     'host-final-complete-btn': () => advanceRound('completed'),
     'host-reveal-clue-btn': revealFinalClue,
     'host-reveal-category-btn': () => {
-    if (gameState.deck.finalJeopardy) {
-      gameState.finalStage = 'category';
-      saveStateToStorage();
-      broadcastAction('SHOW_FINAL_CATEGORY', { category: gameState.deck.finalJeopardy.category });
+      if (gameState.deck.finalJeopardy) {
+        gameState.finalStage = 'category';
+        publishChange('SHOW_FINAL_CATEGORY', { category: gameState.deck.finalJeopardy.category });
     }
     },
     'host-final-reveal-ans-btn': () => {
-    if (gameState.deck.finalJeopardy) {
-      gameState.answerVisible = true;
-      saveStateToStorage();
-      broadcastAction('REVEAL_ANSWER', { answer: gameState.deck.finalJeopardy.answer });
+      if (gameState.deck.finalJeopardy) {
+        gameState.answerVisible = true;
+        publishChange('REVEAL_ANSWER', { answer: gameState.deck.finalJeopardy.answer });
     }
     }
   };
@@ -839,8 +828,7 @@ onReady(() => {
    */
   function activateClueControl(clue) {
     if (!openGameClue(clue)) return;
-    saveStateToStorage();
-    broadcastAction('SHOW_CLUE', { clue });
+    publishChange('SHOW_CLUE', { clue });
     renderRoundTransitions();
     renderClueController();
     hostClueController.tabIndex = -1;
@@ -937,14 +925,7 @@ onReady(() => {
     ddWagerInput.style.borderColor = 'var(--border-glass)';
     
     if (!setDailyDoubleWager(teamId, wager)) return;
-    saveStateToStorage();
-    
-    // Broadcast wager to spectator board
-    broadcastAction('SET_WAGER', { wager });
-    
-    // Assign wagering team as the "Active buzzed team" automatically
-    gameState.activeBuzzedTeamId = teamId;
-    saveStateToStorage();
+    publishChange('SET_WAGER', { wager });
     
     ddWagerPanel.style.display = 'none';
     
@@ -1006,8 +987,7 @@ onReady(() => {
 
   function judgeFinal(teamId, result) {
     if (!gradeFinal(teamId, result)) return;
-    saveStateToStorage();
-    broadcastAction('RESOLVE_CLUE', { teams: gameState.teams, spentClues: gameState.spentClues,
+    publishChange('RESOLVE_CLUE', { teams: gameState.teams, spentClues: gameState.spentClues,
       isCorrect: result === 'correct', isIncorrect: result === 'incorrect', keepOpen: true });
     renderActiveGameUI();
   }
@@ -1020,8 +1000,7 @@ onReady(() => {
   function submitGrade(teamId, result) {
     const resolution = gradeClue(teamId, result);
     if (!resolution) return;
-    saveStateToStorage();
-    broadcastAction('RESOLVE_CLUE', { ...resolution, teams: gameState.teams, spentClues: gameState.spentClues });
+    publishChange('RESOLVE_CLUE', { ...resolution, teams: gameState.teams, spentClues: gameState.spentClues });
     if (resolution.keepOpen) {
       hostClueCorrectBtn.disabled = true;
       hostClueIncorrectBtn.disabled = true;
@@ -1061,9 +1040,7 @@ onReady(() => {
     if (gameState.currentClue.isDailyDouble && gameState.wageringTeamId !== teamId) return;
     gameState.activeBuzzedTeamId = teamId;
     startGameTimer('response');
-    saveStateToStorage();
-    // Broadcast buzzer claim to spectator board (triggers beep + 5s timer)
-    broadcastAction('SET_ACTIVE_TEAM', { teamId });
+    publishChange('SET_ACTIVE_TEAM', { teamId });
     
     // Highlight buzzed team button
     const buttons = buzzerTeamsRow.querySelectorAll('button');
@@ -1089,8 +1066,7 @@ onReady(() => {
   hostRevealAnswerBtn.addEventListener('click', () => {
     if (gameState.currentClue) {
       gameState.answerVisible = true;
-      saveStateToStorage();
-      broadcastAction('REVEAL_ANSWER', { answer: gameState.currentClue.answer });
+      publishChange('REVEAL_ANSWER', { answer: gameState.currentClue.answer });
     }
   });
 
@@ -1103,7 +1079,7 @@ onReady(() => {
   }
   function restoreHistory(redo) {
     if (!(redo ? redoGameChange() : undoGameChange())) return;
-    saveStateToStorage(); broadcastAction('RESTORE_GAME'); renderActiveGameUI();
+    publishChange('RESTORE_GAME'); renderActiveGameUI();
   }
   document.getElementById('undo-score')?.addEventListener('click', () => restoreHistory(false));
   document.getElementById('redo-score')?.addEventListener('click', () => restoreHistory(true));
@@ -1125,7 +1101,7 @@ onReady(() => {
       if (restored.timer) { restored.timer.remaining = timerRemaining(restored.timer); restored.timer.paused = true; }
       Object.assign(gameState, restored);
       historyGeneration++;
-      saveStateToStorage(); broadcastState(true);
+      publishChange('SYNC_STATE', { fullSnapshot: true });
       if (gameState.gamePhase === 'setup') { activeGameContainer.style.display = 'none'; setupContainer.style.display = 'block'; renderTeamSetupInputs(); startGameBtn.disabled = false; }
       else { launchActiveDashboard(); initSettingsUI(); }
       setStatus('Session restored. Any active timer is paused.');
@@ -1161,7 +1137,7 @@ onReady(() => {
   }
 
   initDeckEditor(() => {
-    saveStateToStorage(); broadcastState(true);
+    publishChange('SYNC_STATE', { fullSnapshot: true });
     if (gameState.gamePhase !== 'setup') renderActiveGameUI();
     else {
       uploadStatus.textContent = `Edited deck: ${gameState.deckName || 'game board'}`;
