@@ -10,6 +10,8 @@ Clue cards support keyboard activation with Enter/Space. During a clue: 1–4 se
 
 See [implementation and verification](docs/IMPLEMENTATION.md) for the reviewable commit sequence and measured limits.
 
+See [source refactors and measured size reductions](docs/CODE_SIZE_REDUCTIONS_2026-10-09.md) for the subsequent five cleanup commits and regression results.
+
 The source of both screens is `index.html`. `host.html` and `board.html` are generated compatibility entry points; edit the shared template and regenerate them.
 
 Build with Node:
