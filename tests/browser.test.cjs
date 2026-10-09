@@ -39,8 +39,11 @@ async function setup(csv = sample, options = {}) {
   await host.evaluate(() => { gameState.settings.soundEnabled = false; });
   await host.locator('#csv-upload').setInputFiles({ name: 'test.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await host.waitForFunction(() => document.getElementById('upload-status').textContent.startsWith('Success'));
+  if (options.teamNames) {
+    for (const [index, name] of options.teamNames.entries()) await host.locator('.team-name-input').nth(index).fill(name);
+  }
   await host.locator('#start-game-btn').click();
-  if (await host.locator('#host-skip-categories-btn').count()) await host.locator('#host-skip-categories-btn').click();
+  if (!options.keepIntro && await host.locator('#host-skip-categories-btn').count()) await host.locator('#host-skip-categories-btn').click();
   return { context, host, errors };
 }
 async function openBoard({ host }) {
@@ -83,6 +86,72 @@ test('Daily Double scoring is restricted to its wagering team', () => withGame(
     assert.equal((await state(host)).currentClue, null);
   }
 ));
+test('redrawn score and quick grading controls apply changes exactly once', () => withGame(sample,
+  { teamNames: ['Café <b>🎬</b>', '你好 & Team'] }, async ({ host }) => {
+    await host.locator('.score-plus-btn').first().click();
+    await host.locator('.score-minus-btn').first().click();
+    assert.equal((await state(host)).teams[0].score, 0);
+    await host.locator('.score-display-input').first().fill('100oops');
+    await host.locator('.score-display-input').first().press('Tab');
+    assert.equal((await state(host)).teams[0].score, 0);
+    await host.locator('.host-clue-card').first().click();
+    const quick = host.locator('#quick-score-teams-row');
+    assert.equal(await quick.locator('span').first().textContent(), 'Café <b>🎬</b>');
+    assert.equal(await quick.locator('b').count(), 0);
+    await quick.locator('.btn-incorrect').first().click();
+    assert.equal((await state(host)).teams[0].score, -200);
+    assert.equal(await quick.locator('button[data-team-id="1"]:disabled').count(), 2);
+    await quick.locator('.btn-correct').nth(1).click();
+    assert.equal((await state(host)).teams[1].score, 200);
+    await host.locator('#undo-score').click();
+    assert.equal((await state(host)).teams[1].score, 0);
+    await quick.locator('.btn-correct').nth(1).click();
+    assert.equal((await state(host)).teams[1].score, 200);
+    assert.equal((await state(host)).spentClues.length, 1);
+  }
+));
+test('delegated introduction controls retain next, back, disabled and skip behavior', () => withGame(
+  header + 'single,First,200,Q,A,FALSE,none,\nsingle,Second,200,Q,A,FALSE,none,',
+  { keepIntro: true }, async game => {
+    const { host } = game, board = await openBoard(game);
+    assert.equal(await host.locator('#host-prev-category-btn').isDisabled(), true);
+    await host.locator('#host-next-category-btn').click();
+    await board.waitForFunction(() => gameState.categoryIntroIndex === 1);
+    await host.locator('#host-prev-category-btn').click();
+    await board.waitForFunction(() => gameState.categoryIntroIndex === 0);
+    await host.locator('#host-next-category-btn').click();
+    await host.locator('#host-next-category-btn').click();
+    await board.waitForFunction(() => gameState.categoryIntroIndex === null);
+    assert.equal(await host.locator('.host-clue-card').count(), 2);
+  }
+));
+test('Final wager Enter navigation validates every team and corrections score once', () => withGame(sample, {}, async game => {
+  const { host } = game, board = await openBoard(game);
+  for (const [index, score] of ['100', '200'].entries()) {
+    await host.locator('.score-display-input').nth(index).fill(score);
+    await host.locator('.score-display-input').nth(index).press('Tab');
+  }
+  await host.locator('#btn-goto-double').click();
+  await host.locator('#host-skip-categories-btn').click();
+  await host.locator('#btn-goto-final').click();
+  const inputs = host.locator('.final-wager-input');
+  await inputs.first().fill('101');
+  await inputs.first().press('Enter');
+  assert.equal(await inputs.nth(1).evaluate(el => el === document.activeElement), true);
+  await inputs.nth(1).fill('10'); await inputs.nth(1).press('Enter');
+  assert.equal((await state(host)).currentClue, null);
+  assert.equal(await host.locator('#error-team-1').isVisible(), true);
+  await inputs.first().fill('90'); await inputs.nth(1).press('Enter');
+  await board.waitForFunction(() => gameState.finalStage === 'judging');
+  for (const grade of ['correct', 'incorrect', 'correct']) await host.locator('.final-' + grade + '-btn').first().click();
+  await board.waitForFunction(() => gameState.teams[0].score === 190);
+  await host.locator('.final-correct-btn').first().click();
+  assert.equal((await state(host)).teams[0].score, 190);
+  assert.equal(await host.locator('#host-final-complete-btn').isDisabled(), true);
+  await host.locator('.final-incorrect-btn').nth(1).click();
+  await host.locator('#host-final-complete-btn').click();
+  await board.waitForFunction(() => gameState.gamePhase === 'completed');
+}));
 test('optional rounds and zero-score Final corrections work', () => withGame(
   header + 'single,Science,200,Q,A,FALSE,none,\nfinal,Final,,Q,A,FALSE,none,', {}, async ({ host }) => {
     assert.equal(await host.locator('#btn-goto-double').isVisible(), false);

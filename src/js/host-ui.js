@@ -513,6 +513,87 @@ onReady(() => {
     renderClueController();
   }
 
+  function changeCategory(direction) {
+    const categories = gameState.gamePhase === 'double_jeopardy' ? gameState.deck.doubleJeopardy.categories : gameState.deck.singleJeopardy.categories;
+    const next = gameState.categoryIntroIndex + direction;
+    gameState.categoryIntroIndex = direction === 0 || next >= categories.length ? null : next;
+    saveStateToStorage(); broadcastState(); renderActiveGameUI();
+  }
+  function revealFinalClue() {
+    // Validate all wagers
+    const inputs = hostClueGrid.querySelectorAll('.final-wager-input');
+    let valid = true;
+    const wagerData = [];
+
+    inputs.forEach(input => {
+      const teamId = parseInt(input.dataset.teamId, 10);
+      const team = gameState.teams.find(t => t.id === teamId);
+      const wager = parsePoints(input.value, true);
+      const errorDiv = document.getElementById(`error-team-${teamId}`);
+
+      if (wager === null || wager > gameState.finalParticipants.find(p => p.teamId === teamId).startingScore) {
+        if (errorDiv) {
+          errorDiv.textContent = `Wager must be between $0 and $${team.score}.`;
+          errorDiv.style.display = 'block';
+        }
+        valid = false;
+        input.style.borderColor = 'var(--color-incorrect)';
+      } else {
+        if (errorDiv) {
+          errorDiv.style.display = 'none';
+        }
+        input.style.borderColor = 'var(--border-glass)';
+        wagerData.push({ teamId, wager });
+      }
+    });
+
+    if (!valid) return;
+
+    if (!gameState.deck.finalJeopardy) return;
+    gameState.currentClue = gameState.deck.finalJeopardy;
+    gameState.clueStage = 'answering';
+    gameState.finalStage = 'judging';
+    startGameTimer('final');
+    // Save wagers to state
+    wagerData.forEach(data => {
+      const team = gameState.teams.find(t => t.id === data.teamId);
+      team.finalWager = data.wager;
+    });
+
+    saveStateToStorage();
+
+    // Broadcast reveal Final Jeopardy clue (which triggers music on spectator screen)
+    if (gameState.deck.finalJeopardy) {
+      broadcastAction('SHOW_FINAL_CLUE', { clue: gameState.deck.finalJeopardy });
+    }
+
+    // Redraw panel to Judging View
+    renderActiveGameUI();
+  }
+  const gridActions = {
+    'host-prev-category-btn': () => changeCategory(-1),
+    'host-next-category-btn': () => changeCategory(1),
+    'host-skip-categories-btn': () => changeCategory(0),
+    'host-goto-complete-btn': () => advanceRound('completed'),
+    'host-final-complete-btn': () => advanceRound('completed'),
+    'host-reveal-clue-btn': revealFinalClue,
+    'host-reveal-category-btn': () => {
+    if (gameState.deck.finalJeopardy) {
+      gameState.finalStage = 'category';
+      saveStateToStorage();
+      broadcastAction('SHOW_FINAL_CATEGORY', { category: gameState.deck.finalJeopardy.category });
+    }
+    },
+    'host-final-reveal-ans-btn': () => {
+    if (gameState.deck.finalJeopardy) {
+      gameState.answerVisible = true;
+      saveStateToStorage();
+      broadcastAction('REVEAL_ANSWER', { answer: gameState.deck.finalJeopardy.answer });
+    }
+    }
+  };
+
+
   function renderPresenterGrid() {
     hostClueGrid.innerHTML = '';
     
@@ -567,34 +648,6 @@ onReady(() => {
         card.style.gridColumn = '1 / -1'; // Spans full width of the host clues layout
         hostClueGrid.appendChild(card);
         
-        // Wire controls
-        if (idx > 0) {
-          document.getElementById('host-prev-category-btn').addEventListener('click', () => {
-            gameState.categoryIntroIndex--;
-            saveStateToStorage();
-            broadcastState();
-            renderActiveGameUI();
-          });
-        }
-        
-        document.getElementById('host-next-category-btn').addEventListener('click', () => {
-          if (isLastCategory) {
-            gameState.categoryIntroIndex = null;
-          } else {
-            gameState.categoryIntroIndex++;
-          }
-          saveStateToStorage();
-          broadcastState();
-          renderActiveGameUI();
-        });
-        
-        document.getElementById('host-skip-categories-btn').addEventListener('click', () => {
-          gameState.categoryIntroIndex = null;
-          saveStateToStorage();
-          broadcastState();
-          renderActiveGameUI();
-        });
-        
         return;
       }
     }
@@ -616,9 +669,7 @@ onReady(() => {
             <button class="btn btn-accent" id="host-goto-complete-btn">Advance to Game Completion</button>
           </div>
         `;
-        document.getElementById('host-goto-complete-btn').addEventListener('click', () => {
-          advanceRound('completed');
-        });
+
         return;
       }
       
@@ -661,87 +712,11 @@ onReady(() => {
           </div>
         `;
 
-        const wagerInputs = hostClueGrid.querySelectorAll('.final-wager-input');
-        wagerInputs.forEach((input, idx) => {
-          input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              if (idx < wagerInputs.length - 1) {
-                wagerInputs[idx + 1].focus();
-              } else {
-                document.getElementById('host-reveal-clue-btn').click();
-              }
-            }
-          });
-        });
-        
-        document.getElementById('host-reveal-category-btn').addEventListener('click', () => {
-          if (gameState.deck.finalJeopardy) {
-            gameState.finalStage = 'category';
-            saveStateToStorage();
-            broadcastAction('SHOW_FINAL_CATEGORY', { category: gameState.deck.finalJeopardy.category });
-          }
-        });
-        
-        document.getElementById('host-reveal-clue-btn').addEventListener('click', () => {
-          // Validate all wagers
-          const inputs = hostClueGrid.querySelectorAll('.final-wager-input');
-          let valid = true;
-          const wagerData = [];
-          
-          inputs.forEach(input => {
-            const teamId = parseInt(input.dataset.teamId, 10);
-            const team = gameState.teams.find(t => t.id === teamId);
-            const wager = parsePoints(input.value, true);
-            const errorDiv = document.getElementById(`error-team-${teamId}`);
-            
-            if (wager === null || wager > gameState.finalParticipants.find(p => p.teamId === teamId).startingScore) {
-              if (errorDiv) {
-                errorDiv.textContent = `Wager must be between $0 and $${team.score}.`;
-                errorDiv.style.display = 'block';
-              }
-              valid = false;
-              input.style.borderColor = 'var(--color-incorrect)';
-            } else {
-              if (errorDiv) {
-                errorDiv.style.display = 'none';
-              }
-              input.style.borderColor = 'var(--border-glass)';
-              wagerData.push({ teamId, wager });
-            }
-          });
-          
-          if (!valid) return;
-          
-          if (!gameState.deck.finalJeopardy) return;
-          gameState.currentClue = gameState.deck.finalJeopardy;
-          gameState.clueStage = 'answering';
-          gameState.finalStage = 'judging';
-          startGameTimer('final');
-          // Save wagers to state
-          wagerData.forEach(data => {
-            const team = gameState.teams.find(t => t.id === data.teamId);
-            team.finalWager = data.wager;
-          });
-          
-          saveStateToStorage();
-          
-          // Broadcast reveal Final Jeopardy clue (which triggers music on spectator screen)
-          if (gameState.deck.finalJeopardy) {
-            broadcastAction('SHOW_FINAL_CLUE', { clue: gameState.deck.finalJeopardy });
-          }
-          
-          // Redraw panel to Judging View
-          renderActiveGameUI();
-        });
-        
+
       } else {
         // Judging View
         let scoringHtml = '';
         eligibleTeams.forEach(team => {
-          const isCorrect = team.finalResult === 'correct';
-          const isIncorrect = team.finalResult === 'incorrect';
-          
           scoringHtml += `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px; margin-bottom: 12px; gap: 15px;">
               <div>
@@ -749,8 +724,7 @@ onReady(() => {
                 <span style="color: var(--color-text-muted); font-size: 13px;">Score: $${team.score} | Wager: $${team.finalWager}</span>
               </div>
               <div style="display: flex; gap: 8px;">
-                <button class="btn btn-correct final-correct-btn ${isCorrect ? 'active-grade' : ''}" data-team-id="${team.id}" style="padding: 6px 16px; min-width: 90px; opacity: ${team.finalResult && !isCorrect ? 0.3 : 1};">Correct</button>
-                <button class="btn btn-incorrect final-incorrect-btn ${isIncorrect ? 'active-grade' : ''}" data-team-id="${team.id}" style="padding: 6px 16px; min-width: 90px; opacity: ${team.finalResult && !isIncorrect ? 0.3 : 1};">Incorrect</button>
+                ${gradingButtons(team)}
               </div>
             </div>
           `;
@@ -782,29 +756,10 @@ onReady(() => {
           </div>
         `;
         
-        const judgeFinal = (teamId, result) => {
-          if (!gradeFinal(teamId, result)) return;
-          saveStateToStorage();
-          broadcastAction('RESOLVE_CLUE', { teams: gameState.teams, spentClues: gameState.spentClues,
-            isCorrect: result === 'correct', isIncorrect: result === 'incorrect', keepOpen: true });
-          renderActiveGameUI();
-        };
-        hostClueGrid.querySelectorAll('.final-correct-btn, .final-incorrect-btn').forEach(button => {
-          button.addEventListener('click', () => judgeFinal(Number(button.dataset.teamId),
-            button.classList.contains('final-correct-btn') ? 'correct' : 'incorrect'));
-        });
 
-        document.getElementById('host-final-reveal-ans-btn').addEventListener('click', () => {
-          if (gameState.deck.finalJeopardy) {
-            gameState.answerVisible = true;
-            saveStateToStorage();
-            broadcastAction('REVEAL_ANSWER', { answer: gameState.deck.finalJeopardy.answer });
-          }
-        });
+
         
-        document.getElementById('host-final-complete-btn').addEventListener('click', () => {
-          advanceRound('completed');
-        });
+
       }
       return;
     }
@@ -1062,36 +1017,35 @@ onReady(() => {
       return;
     }
 
-    gameState.teams.filter(team => !gameState.currentClue.isDailyDouble || team.id === gameState.wageringTeamId).forEach(team => {
-      // Create quick score card/group
-      const groupEl = document.createElement('div');
-
-      const nameEl = document.createElement('span');
-      nameEl.style.color = team.color;
-      nameEl.textContent = team.name;
-
-      const plusBtn = document.createElement('button');
-      plusBtn.className = 'btn btn-correct';
-      plusBtn.textContent = `+$${clueVal}`;
-      plusBtn.disabled = gameState.lockedOutTeamIds.includes(team.id);
-      plusBtn.addEventListener('click', () => {
-        submitGrade(team.id, 'correct');
-      });
-
-      const minusBtn = document.createElement('button');
-      minusBtn.className = 'btn btn-incorrect';
-      minusBtn.textContent = `-$${clueVal}`;
-      minusBtn.disabled = gameState.lockedOutTeamIds.includes(team.id);
-      minusBtn.addEventListener('click', () => {
-        submitGrade(team.id, 'incorrect');
-      });
-
-      groupEl.appendChild(nameEl);
-      groupEl.appendChild(plusBtn);
-      groupEl.appendChild(minusBtn);
-      quickScoreTeamsRow.appendChild(groupEl);
-    });
+    quickScoreTeamsRow.innerHTML = gameState.teams
+      .filter(team => !gameState.currentClue.isDailyDouble || team.id === gameState.wageringTeamId)
+      .map(team => `<div><span style="color: ${escapeHTML(team.color)};">${escapeHTML(team.name)}</span>${gradingButtons(team, clueVal)}</div>`).join('');
   }
+
+  function gradingButtons(team, points = null) {
+    const final = points === null;
+    return ['correct', 'incorrect'].map((result, index) => {
+      const active = final && team.finalResult === result;
+      const classes = final ? `final-${result}-btn ${active ? 'active-grade' : ''}` : '';
+      const style = final ? ` style="padding: 6px 16px; min-width: 90px; opacity: ${team.finalResult && !active ? 0.3 : 1};"` : '';
+      const disabled = !final && gameState.lockedOutTeamIds.includes(team.id) ? ' disabled' : '';
+      const label = final ? (index ? 'Incorrect' : 'Correct') : `${index ? '-' : '+'}$${points}`;
+      return `<button class="btn btn-${result} ${classes}" data-team-id="${team.id}"${style}${disabled}>${label}</button>`;
+    }).join('');
+  }
+
+  function judgeFinal(teamId, result) {
+    if (!gradeFinal(teamId, result)) return;
+    saveStateToStorage();
+    broadcastAction('RESOLVE_CLUE', { teams: gameState.teams, spentClues: gameState.spentClues,
+      isCorrect: result === 'correct', isIncorrect: result === 'incorrect', keepOpen: true });
+    renderActiveGameUI();
+  }
+  quickScoreTeamsRow.addEventListener('click', event => {
+    const button = event.target.closest('button[data-team-id]');
+    if (!button || button.disabled) return;
+    submitGrade(Number(button.dataset.teamId), button.classList.contains('btn-correct') ? 'correct' : 'incorrect');
+  });
 
   function submitGrade(teamId, result) {
     const resolution = gradeClue(teamId, result);
@@ -1246,6 +1200,12 @@ onReady(() => {
     }
   });
   hostClueGrid.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && event.target.matches('.final-wager-input')) {
+      event.preventDefault();
+      const inputs = [...hostClueGrid.querySelectorAll('.final-wager-input')];
+      const next = inputs[inputs.indexOf(event.target) + 1];
+      if (next) next.focus(); else revealFinalClue();
+    }
     if (['Enter', ' '].includes(event.key) && event.target.classList.contains('host-clue-card')) { event.preventDefault(); event.target.click(); }
   });
   document.addEventListener('keydown', event => {
@@ -1263,6 +1223,13 @@ onReady(() => {
 
   // Centralized Event Delegation for clue card grid clicks
   hostClueGrid.addEventListener('click', (e) => {
+    const button = e.target.closest('button');
+    if (button) {
+      if (button.disabled) return;
+      if (button.dataset.teamId) judgeFinal(Number(button.dataset.teamId), button.classList.contains('btn-correct') ? 'correct' : 'incorrect');
+      else gridActions[button.id]?.();
+      return;
+    }
     // If the category introductions or final jeopardy captured are active, ignore
     if (gameState.categoryIntroIndex !== null && gameState.categoryIntroIndex !== undefined) return;
     if (gameState.gamePhase === 'final_jeopardy' || gameState.gamePhase === 'setup' || gameState.gamePhase === 'completed') return;
