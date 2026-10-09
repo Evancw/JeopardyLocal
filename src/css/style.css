@@ -767,3 +767,11 @@ h1, h2, h3, h4 {
 .editor-wide { grid-column: 1 / -1; }
 #editor-preview { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid var(--border-glass); }
 .keyboard-help { font-size: 12px; color: var(--color-text-muted); }
+
+/* Shared presenter layouts and controls. */
+#host-edit-teams-container > div { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 6px; background: rgba(255,255,255,.03); border: 1px solid var(--border-glass); }
+.team-name-edit-input { --input-pad: 4px 8px; --input-font: 12px; border-radius: 4px; flex: 1; }
+.team-color-edit-input { --input-width: 32px; --input-pad: 0; border-radius: 4px; height: 26px; background: none; cursor: pointer; }
+#quick-score-teams-row > div { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: rgba(255,255,255,.02); border: 1px solid var(--border-glass); border-radius: 8px; }
+#quick-score-teams-row span { font-weight: 600; font-size: 14px; margin-right: 6px; }
+#quick-score-teams-row .btn { padding: 4px 8px; font-size: 12px; }

@@ -165,21 +165,14 @@ onReady(() => {
     
     gameState.teams.forEach((team, index) => {
       const row = document.createElement('div');
-      row.style.display = 'flex';
-      row.style.flexDirection = 'column';
-      row.style.gap = '6px';
-      row.style.padding = '8px';
-      row.style.borderRadius = '6px';
-      row.style.background = 'rgba(255, 255, 255, 0.03)';
-      row.style.border = '1px solid var(--border-glass)';
       
       row.innerHTML = `
-        <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div class="host-team-card-header">
           <span style="font-weight: bold; color: var(--color-accent);">Team ${index + 1}</span>
         </div>
         <div style="display: flex; gap: 8px;">
-          <input type="text" class="team-name-edit-input input-field" data-id="${team.id}" value="${escapeHTML(team.name)}" style="--input-pad: 4px 8px; --input-font: 12px; border-radius: 4px; flex: 1;">
-          <input type="color" class="team-color-edit-input input-field" data-id="${team.id}" value="${escapeHTML(team.color)}" style="--input-width: 32px; --input-pad: 0; border-radius: 4px; height: 26px; background: none; cursor: pointer;">
+          <input type="text" class="team-name-edit-input input-field" data-id="${team.id}" value="${escapeHTML(team.name)}">
+          <input type="color" class="team-color-edit-input input-field" data-id="${team.id}" value="${escapeHTML(team.color)}">
         </div>
       `;
       
@@ -1072,25 +1065,13 @@ onReady(() => {
     gameState.teams.filter(team => !gameState.currentClue.isDailyDouble || team.id === gameState.wageringTeamId).forEach(team => {
       // Create quick score card/group
       const groupEl = document.createElement('div');
-      groupEl.style.display = 'flex';
-      groupEl.style.alignItems = 'center';
-      groupEl.style.gap = '6px';
-      groupEl.style.padding = '6px 12px';
-      groupEl.style.background = 'rgba(255,255,255,0.02)';
-      groupEl.style.border = '1px solid var(--border-glass)';
-      groupEl.style.borderRadius = '8px';
 
       const nameEl = document.createElement('span');
-      nameEl.style.fontWeight = '600';
-      nameEl.style.fontSize = '14px';
-      nameEl.style.marginRight = '6px';
       nameEl.style.color = team.color;
       nameEl.textContent = team.name;
 
       const plusBtn = document.createElement('button');
       plusBtn.className = 'btn btn-correct';
-      plusBtn.style.padding = '4px 8px';
-      plusBtn.style.fontSize = '12px';
       plusBtn.textContent = `+$${clueVal}`;
       plusBtn.disabled = gameState.lockedOutTeamIds.includes(team.id);
       plusBtn.addEventListener('click', () => {
@@ -1099,8 +1080,6 @@ onReady(() => {
 
       const minusBtn = document.createElement('button');
       minusBtn.className = 'btn btn-incorrect';
-      minusBtn.style.padding = '4px 8px';
-      minusBtn.style.fontSize = '12px';
       minusBtn.textContent = `-$${clueVal}`;
       minusBtn.disabled = gameState.lockedOutTeamIds.includes(team.id);
       minusBtn.addEventListener('click', () => {
