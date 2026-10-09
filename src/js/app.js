@@ -183,6 +183,17 @@ function clearActiveClue() {
   gameState.timer = null;
 }
 
+function roundCategories() {
+  const round = gameState.gamePhase === 'double_jeopardy' ? 'doubleJeopardy' : 'singleJeopardy';
+  return gameState.deck?.[round]?.categories || [];
+}
+function maxRoundClueValue() {
+  return Math.max(0, ...roundCategories().flatMap(category => category.clues.map(clue => clue.value)));
+}
+function dailyDoubleLimit(team, maximum = maxRoundClueValue()) {
+  return Math.max(team?.score || 0, maximum);
+}
+
 function availablePhases() {
   const phases = [];
   if (gameState.deck.singleJeopardy.categories.length) phases.push('single_jeopardy');
@@ -228,8 +239,7 @@ function openGameClue(clue) {
 function setDailyDoubleWager(teamId, wager) {
   const clue = gameState.currentClue;
   const team = gameState.teams.find(t => t.id === teamId);
-  const round = gameState.gamePhase === 'double_jeopardy' ? 'doubleJeopardy' : 'singleJeopardy';
-  const maximum = Math.max(...gameState.deck[round].categories.flatMap(c => c.clues.map(q => q.value)), team?.score || 0);
+  const maximum = dailyDoubleLimit(team);
   if (!team || !clue?.isDailyDouble || gameState.clueStage !== 'wager' || !Number.isSafeInteger(wager) || wager < 5 || wager > maximum) return false;
   gameState.currentWager = wager;
   gameState.wageringTeamId = teamId;

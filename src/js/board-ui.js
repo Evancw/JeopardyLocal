@@ -328,8 +328,7 @@ onReady(() => {
   function renderStandardJeopardyGrid() {
     gridEl.innerHTML = '';
     
-    const categories = gameState.gamePhase === 'double_jeopardy' ? 
-      gameState.deck.doubleJeopardy.categories : gameState.deck.singleJeopardy.categories;
+    const categories = roundCategories();
       
     if (categories.length === 0) {
       gridEl.innerHTML = '<p style="grid-column: 1 / -1; text-align: center;">No categories available.</p>';
@@ -377,8 +376,7 @@ onReady(() => {
   function updateClueCardStates() {
     if (gameState.gamePhase === 'final_jeopardy' || gameState.gamePhase === 'setup') return;
     
-    const categories = gameState.gamePhase === 'double_jeopardy' ? 
-      gameState.deck.doubleJeopardy.categories : gameState.deck.singleJeopardy.categories;
+    const categories = roundCategories();
       
     const cards = gridEl.querySelectorAll('.clue-card:not(.category-card)');
     let index = 0;
@@ -552,8 +550,7 @@ onReady(() => {
     const isIntro = gameState.categoryIntroIndex !== null && gameState.categoryIntroIndex !== undefined;
     
     if (isIntro && (gameState.gamePhase === 'single_jeopardy' || gameState.gamePhase === 'double_jeopardy')) {
-      const categories = gameState.gamePhase === 'double_jeopardy' ? 
-        gameState.deck.doubleJeopardy.categories : gameState.deck.singleJeopardy.categories;
+      const categories = roundCategories();
         
       const idx = gameState.categoryIntroIndex;
       if (categories && categories[idx]) {

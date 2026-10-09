@@ -68,34 +68,7 @@ onReady(() => {
 
 
   function getMaxClueValueOfRound() {
-    let maxVal = 0;
-    try {
-      const isDouble = gameState.gamePhase === 'double_jeopardy';
-      const categories = isDouble ? 
-        gameState.deck?.doubleJeopardy?.categories : gameState.deck?.singleJeopardy?.categories;
-      
-      if (categories && Array.isArray(categories)) {
-        categories.forEach(cat => {
-          if (cat && cat.clues && Array.isArray(cat.clues)) {
-            cat.clues.forEach(clue => {
-              if (clue && typeof clue.value === 'number') {
-                if (clue.value > maxVal) {
-                  maxVal = clue.value;
-                }
-              }
-            });
-          }
-        });
-      }
-    } catch (e) {
-      console.warn("Could not calculate max clue value from deck:", e);
-    }
-    
-    // Fallback values if none loaded/found
-    if (maxVal === 0) {
-      maxVal = gameState.gamePhase === 'double_jeopardy' ? 2000 : 1000;
-    }
-    return maxVal;
+    return maxRoundClueValue() || (gameState.gamePhase === 'double_jeopardy' ? 2000 : 1000);
   }
 
   // Check if session can be recovered from storage immediately
@@ -514,7 +487,7 @@ onReady(() => {
   }
 
   function changeCategory(direction) {
-    const categories = gameState.gamePhase === 'double_jeopardy' ? gameState.deck.doubleJeopardy.categories : gameState.deck.singleJeopardy.categories;
+    const categories = roundCategories();
     const next = gameState.categoryIntroIndex + direction;
     gameState.categoryIntroIndex = direction === 0 || next >= categories.length ? null : next;
     saveStateToStorage(); broadcastState(); renderActiveGameUI();
@@ -601,8 +574,7 @@ onReady(() => {
     if (gameState.categoryIntroIndex !== null && gameState.categoryIntroIndex !== undefined &&
         (gameState.gamePhase === 'single_jeopardy' || gameState.gamePhase === 'double_jeopardy')) {
       
-      const categories = gameState.gamePhase === 'double_jeopardy' ? 
-        gameState.deck.doubleJeopardy.categories : gameState.deck.singleJeopardy.categories;
+      const categories = roundCategories();
         
       const idx = gameState.categoryIntroIndex;
       const activeCategory = categories[idx];
@@ -653,8 +625,7 @@ onReady(() => {
     }
     
     // Restore grid columns layout if standard clues grid rendering is active
-    const activeCategories = gameState.gamePhase === 'double_jeopardy' ? 
-      gameState.deck?.doubleJeopardy?.categories : gameState.deck?.singleJeopardy?.categories;
+    const activeCategories = roundCategories();
     const colCount = (activeCategories && activeCategories.length) || 5;
     hostClueGrid.style.gridTemplateColumns = `repeat(${colCount}, 1fr)`;
 
@@ -807,8 +778,7 @@ onReady(() => {
       return;
     }
 
-    const categories = gameState.gamePhase === 'double_jeopardy' ? 
-      gameState.deck.doubleJeopardy.categories : gameState.deck.singleJeopardy.categories;
+    const categories = roundCategories();
       
     if (categories.length === 0) {
       hostClueGrid.innerHTML = '<p style="grid-column: 1 / -1; text-align: center;">No categories available.</p>';
@@ -945,7 +915,7 @@ onReady(() => {
     }
     
     const maxClueVal = getMaxClueValueOfRound();
-    const maxAllowed = Math.max(team.score, maxClueVal);
+    const maxAllowed = dailyDoubleLimit(team, maxClueVal);
     const minWager = 5;
     
     // Strip dollar signs, commas, whitespace, and decimal points to allow formats like "$1,000" or " $ 500 "
@@ -1241,8 +1211,7 @@ onReady(() => {
     const rowIndex = parseInt(card.dataset.rowIndex, 10);
     if (!catName || isNaN(rowIndex)) return;
     
-    const categories = gameState.gamePhase === 'double_jeopardy' ? 
-      gameState.deck.doubleJeopardy.categories : gameState.deck.singleJeopardy.categories;
+    const categories = roundCategories();
       
     const cat = categories.find(c => c.name === catName);
     if (cat) {
