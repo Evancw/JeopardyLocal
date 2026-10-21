@@ -92,6 +92,64 @@ test('Final participants remain judgeable at zero and completion is guarded', ()
   assert.equal(vm.runInContext('gameState.teams[0].score', e), 200);
   assert.equal(e.beginRound('completed'), true);
 });
+test('board control transfers on correct answers, survives misses and Daily Doubles, and follows undo', () => {
+  const e = engine();
+  const csv = header + row + '\n' + row.replace('200', '400') + '\n' + row.replace('200', '600').replace('FALSE', 'TRUE') + '\ndouble,Next,400,Q,A,FALSE,none,\nfinal,Last,,Q,A,FALSE,none,';
+  vm.runInContext(`gameState.deck = processCSVDeck(${JSON.stringify(csv)}); gameState.teams = [{id:1,score:0},{id:2,score:0}]; beginRound('single_jeopardy');`, e);
+  const control = () => vm.runInContext('gameState.boardControlTeamId', e);
+  const clues = vm.runInContext('gameState.deck.singleJeopardy.categories[0].clues', e);
+  assert.equal(control(), null);
+  assert.equal(e.setBoardControl(999), false);
+  assert.equal(e.setBoardControl(1), true);
+  assert.equal(e.openGameClue(clues[0]), true);
+  e.gradeClue(1, 'incorrect');
+  assert.equal(control(), 1);
+  e.gradeClue(2, 'correct');
+  assert.equal(control(), 2);
+  assert.equal(e.undoGameChange(), true);
+  assert.equal(control(), 1);
+  assert.equal(e.redoGameChange(), true);
+  assert.equal(control(), 2);
+  e.openGameClue(clues[1]); e.gradeClue(null, 'skip');
+  assert.equal(control(), 2);
+  e.openGameClue(clues[2]);
+  assert.equal(vm.runInContext('gameState.wageringTeamId', e), 2);
+  e.setDailyDoubleWager(2, 100); e.gradeClue(2, 'incorrect');
+  assert.equal(control(), 2);
+  e.beginRound('double_jeopardy');
+  assert.equal(control(), null);
+  assert.equal(e.setBoardControl(1), true);
+  e.beginRound('final_jeopardy');
+  assert.equal(control(), null);
+  assert.equal(e.setBoardControl(1), false);
+  e.resetGameState();
+  assert.equal(control(), null);
+});
+test('board control persists in backups and autosave while older sessions default safely', () => {
+  const e = engine();
+  vm.runInContext(`gameState.deck = processCSVDeck(${JSON.stringify(header + row)}); gameState.teams = [{id:1,name:'A',color:'#112233',score:0},{id:2,name:'B',color:'#aabbcc',score:0}]; beginRound('single_jeopardy'); gameState.categoryIntroIndex = null; recordGameChange('Board control', () => setBoardControl(2));`, e);
+  const current = JSON.parse(e.exportSessionBackup());
+  assert.equal(e.parseSessionBackup(JSON.stringify(current)).boardControlTeamId, 2);
+  e.saveStateToStorage(); e.setBoardControl(null);
+  assert.equal(e.loadStateFromStorage(), true);
+  assert.equal(vm.runInContext('gameState.boardControlTeamId', e), 2);
+  const invalid = structuredClone(current);
+  invalid.state.boardControlTeamId = 999;
+  assert.throws(() => e.parseSessionBackup(JSON.stringify(invalid)), /board control/);
+  delete current.state.boardControlTeamId;
+  for (const entry of current.state.undoStack) {
+    delete entry.before.boardControlTeamId; delete entry.after.boardControlTeamId;
+  }
+  const legacy = e.parseSessionBackup(JSON.stringify(current));
+  assert.equal(legacy.boardControlTeamId, null);
+  assert.equal(legacy.undoStack[0].before.boardControlTeamId, null);
+  assert.equal(legacy.undoStack[0].after.boardControlTeamId, null);
+  const saved = JSON.parse(e.localStorage.getItem('jeopardy_local_state'));
+  delete saved.boardControlTeamId;
+  e.localStorage.setItem('jeopardy_local_state', JSON.stringify(saved));
+  assert.equal(e.loadStateFromStorage(), true);
+  assert.equal(vm.runInContext('gameState.boardControlTeamId', e), null);
+});
 test('shared timer pauses and resumes without extending elapsed time', () => {
   const e = engine();
   e.startGameTimer('final', 1000);

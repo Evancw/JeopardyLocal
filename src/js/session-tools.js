@@ -1,7 +1,7 @@
 /* Undo history and portable, validated session backups. */
 let historyGeneration = 0;
 const GAMEPLAY_FIELDS = ['teams', 'currentClue', 'currentWager', 'activeBuzzedTeamId', 'spentClues', 'gamePhase',
-  'categoryIntroIndex', 'lockedOutTeamIds', 'wageringTeamId', 'clueStage', 'answerVisible', 'finalParticipants', 'finalStage', 'timer'];
+  'categoryIntroIndex', 'lockedOutTeamIds', 'wageringTeamId', 'boardControlTeamId', 'clueStage', 'answerVisible', 'finalParticipants', 'finalStage', 'timer'];
 
 function gameplaySnapshot(state = gameState) {
   return JSON.parse(JSON.stringify(Object.fromEntries(GAMEPLAY_FIELDS.map(key => [key, state[key]]))));
@@ -123,6 +123,8 @@ function validateGameplay(source, deck) {
     if (source.clueStage === 'wager' && !currentClue.isDailyDouble) throw new Error('Only Daily Doubles have this wagering stage.');
   }
   const active = source.activeBuzzedTeamId, wagering = source.wageringTeamId;
+  const boardControl = source.boardControlTeamId ?? null;
+  if (boardControl !== null && !teamIds.has(boardControl)) throw new Error('Invalid board control team.');
   if ((active !== null && !teamIds.has(active)) || (wagering !== null && !teamIds.has(wagering)) || locked.includes(active)) throw new Error('Invalid answering team.');
   if (source.currentWager !== null && (!Number.isSafeInteger(source.currentWager) || source.currentWager < 5)) throw new Error('Invalid Daily Double wager.');
   if (currentClue?.isDailyDouble && source.clueStage === 'answering' && (!wagering || source.currentWager === null)) throw new Error('Daily Double has no wagering team or wager.');
@@ -144,7 +146,7 @@ function validateGameplay(source, deck) {
     if (t.paused) timer.remaining = t.remaining;
   }
   return { teams, currentClue, spentClues: [...spent], lockedOutTeamIds: [...locked], currentWager: source.currentWager,
-    activeBuzzedTeamId: active, wageringTeamId: wagering, gamePhase: source.gamePhase, clueStage: source.clueStage,
+    activeBuzzedTeamId: active, wageringTeamId: wagering, boardControlTeamId: boardControl, gamePhase: source.gamePhase, clueStage: source.clueStage,
     categoryIntroIndex: source.categoryIntroIndex, answerVisible: Boolean(source.answerVisible),
     finalParticipants: participants.map(p => ({ teamId: p.teamId, startingScore: p.startingScore })), finalStage: source.finalStage, timer };
 }

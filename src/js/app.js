@@ -32,6 +32,7 @@ const gameState = {
   currentClue: null, // Active Clue object
   lockedOutTeamIds: [],
   wageringTeamId: null,
+  boardControlTeamId: null,
   clueStage: 'idle',
   answerVisible: false,
   finalParticipants: [],
@@ -136,6 +137,7 @@ function loadStateFromStorage() {
       if (!parsed.clueStage) gameState.clueStage = gameState.currentClue ?
         (gameState.currentClue.isDailyDouble && !gameState.currentWager ? 'wager' : 'answering') : 'idle';
       if (!parsed.wageringTeamId && gameState.currentClue?.isDailyDouble) gameState.wageringTeamId = gameState.activeBuzzedTeamId;
+      gameState.boardControlTeamId = parsed.boardControlTeamId ?? null;
       if (!parsed.finalParticipants && gameState.gamePhase === 'final_jeopardy') {
         gameState.finalParticipants = gameState.teams.filter(t => t.score > 0 || typeof t.finalWager === 'number')
           .map(t => ({ teamId: t.id, startingScore: t.score - (t.finalResult === 'correct' ? t.finalWager : t.finalResult === 'incorrect' ? -t.finalWager : 0) }));
@@ -169,6 +171,7 @@ function resetGameState() {
     });
   }
   clearActiveClue();
+  gameState.boardControlTeamId = null;
   gameState.finalParticipants = [];
   gameState.finalStage = 'category';
   gameState.activeBuzzedTeamId = null;
@@ -226,6 +229,7 @@ function beginRound(phase) {
   if (phase !== 'completed' && !availablePhases().includes(phase)) return false;
   clearActiveClue();
   gameState.gamePhase = phase;
+  gameState.boardControlTeamId = null;
   gameState.categoryIntroIndex = ['single_jeopardy', 'double_jeopardy'].includes(phase) ? 0 : null;
   if (phase !== 'completed') {
     gameState.teams.forEach(team => { delete team.finalWager; delete team.finalResult; });
@@ -241,7 +245,14 @@ function openGameClue(clue) {
   clearActiveClue();
   gameState.currentClue = clue;
   gameState.clueStage = clue.isDailyDouble ? 'wager' : 'answering';
-  if (clue.isDailyDouble) gameState.wageringTeamId = gameState.teams[0]?.id ?? null;
+  if (clue.isDailyDouble) gameState.wageringTeamId = gameState.boardControlTeamId ?? gameState.teams[0]?.id ?? null;
+  return true;
+}
+
+function setBoardControl(teamId) {
+  if (!['single_jeopardy', 'double_jeopardy'].includes(gameState.gamePhase) ||
+    (teamId !== null && !gameState.teams.some(team => team.id === teamId)) || gameState.boardControlTeamId === teamId) return false;
+  gameState.boardControlTeamId = teamId;
   return true;
 }
 
@@ -277,6 +288,8 @@ function applyClueGrade(teamId, result) {
     if (result === 'incorrect') gameState.lockedOutTeamIds.push(teamId);
   }
   const keepOpen = result === 'incorrect' && !clue.isDailyDouble && gameState.lockedOutTeamIds.length < gameState.teams.length;
+  if (result === 'correct') gameState.boardControlTeamId = teamId;
+  else if (clue.isDailyDouble && gameState.wageringTeamId !== null) gameState.boardControlTeamId = gameState.wageringTeamId;
   gameState.activeBuzzedTeamId = null;
   gameState.timer = null;
   if (!keepOpen) {
