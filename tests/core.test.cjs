@@ -71,8 +71,14 @@ test('all normal grading paths enforce lockouts and one-time scoring', () => {
 test('Daily Double rejects other teams and invalid wagers', () => {
   const e = engine();
   vm.runInContext(`gameState.deck = processCSVDeck(${JSON.stringify(header + row.replace('FALSE', 'TRUE'))}); gameState.teams = [{id:1,score:0},{id:2,score:0}]; beginRound('single_jeopardy'); openGameClue(gameState.deck.singleJeopardy.categories[0].clues[0]);`, e);
+  assert.equal(vm.runInContext('gameState.wageringTeamId', e), 1);
+  assert.equal(e.selectDailyDoubleTeam(999), false);
+  assert.equal(e.selectDailyDoubleTeam(2), true);
+  assert.equal(vm.runInContext('gameState.wageringTeamId', e), 2);
+  assert.equal(e.selectDailyDoubleTeam(1), true);
   assert.equal(e.setDailyDoubleWager(1, 201), false);
   assert.equal(e.setDailyDoubleWager(1, 100), true);
+  assert.equal(e.selectDailyDoubleTeam(2), false);
   assert.equal(e.gradeClue(2, 'correct'), null);
   assert.equal(e.gradeClue(1, 'incorrect').keepOpen, false);
 });

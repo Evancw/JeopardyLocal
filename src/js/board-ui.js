@@ -26,6 +26,8 @@ onReady(() => {
   const specialTitleEl = document.getElementById('special-title');
   const specialPromptEl = document.getElementById('special-prompt');
   const specialWagerEl = document.getElementById('special-wager-display');
+  const wagerScoreboardEl = document.getElementById('dd-scoreboard');
+  let lastWagerScores = '';
   
   // Countdown Timer Elements
   const countdownDisplayEl = document.getElementById('countdown-display');
@@ -63,6 +65,17 @@ onReady(() => {
       if (clue) showClueOverlay(clue, false);
       else if (categoryOnly) showClueOverlay({ question: `Category: ${gameState.deck.finalJeopardy?.category || ''}` }, false);
       else hideClueOverlay();
+    }
+    const wagering = clue?.isDailyDouble && gameState.clueStage === 'wager';
+    wagerScoreboardEl.hidden = !wagering;
+    const scoresKey = wagering ? JSON.stringify([gameState.teams, gameState.wageringTeamId]) : '';
+    if (scoresKey !== lastWagerScores) {
+      lastWagerScores = scoresKey;
+      if (wagering) renderScoreboard(wagerScoreboardEl);
+    }
+    if (wagering) {
+      const owner = gameState.teams.find(team => team.id === gameState.wageringTeamId);
+      specialPromptEl.textContent = owner ? `${owner.name} — place your wager` : 'Awaiting team wager...';
     }
     const answer = document.getElementById('clue-answer-text');
     if (answer) {
@@ -292,28 +305,30 @@ onReady(() => {
     roundTitleEl.textContent = titles[gameState.gamePhase] || 'Trivia Board';
   }
 
-  function renderScoreboard() {
-    scoreboardEl.innerHTML = '';
+  function renderScoreboard(container = scoreboardEl) {
+    container.innerHTML = '';
     
     if (gameState.teams.length === 0) {
-      scoreboardEl.innerHTML = '<p style="color: var(--color-text-muted);">No teams registered</p>';
+      container.innerHTML = '<p style="color: var(--color-text-muted);">No teams registered</p>';
       return;
     }
     
     gameState.teams.forEach(team => {
       const activeBuzz = gameState.activeBuzzedTeamId === team.id;
       const isNegative = team.score < 0;
+      const ownsDailyDouble = container === wagerScoreboardEl && team.id === gameState.wageringTeamId;
       
       const card = document.createElement('div');
-      card.className = `team-score-card glass ${activeBuzz ? 'active-buzz' : ''}`;
+      card.className = `team-score-card glass ${activeBuzz ? 'active-buzz' : ''} ${ownsDailyDouble ? 'dd-owner' : ''}`;
       card.style.setProperty('--team-color', team.color);
       
       card.innerHTML = `
         <div class="score-team-name">${escapeHTML(team.name)}</div>
+        ${ownsDailyDouble ? '<div class="dd-owner-label">Wagering team</div>' : ''}
         <div class="score-amount ${isNegative ? 'negative' : ''}">$${team.score}</div>
       `;
       
-      scoreboardEl.appendChild(card);
+      container.appendChild(card);
     });
   }
 
@@ -440,7 +455,8 @@ onReady(() => {
     if (clue.isDailyDouble) {
       specialCardEl.style.display = 'block';
       specialTitleEl.textContent = 'Daily Double';
-      specialPromptEl.textContent = 'Wager Placed:';
+      const owner = gameState.teams.find(team => team.id === gameState.wageringTeamId);
+      specialPromptEl.textContent = owner ? `${owner.name} wagered:` : 'Wager Placed:';
       specialWagerEl.textContent = `$${gameState.currentWager}`;
       specialWagerEl.style.display = 'block';
     }

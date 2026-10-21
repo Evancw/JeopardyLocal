@@ -241,6 +241,13 @@ function openGameClue(clue) {
   clearActiveClue();
   gameState.currentClue = clue;
   gameState.clueStage = clue.isDailyDouble ? 'wager' : 'answering';
+  if (clue.isDailyDouble) gameState.wageringTeamId = gameState.teams[0]?.id ?? null;
+  return true;
+}
+
+function selectDailyDoubleTeam(teamId) {
+  if (!gameState.currentClue?.isDailyDouble || gameState.clueStage !== 'wager' || !gameState.teams.some(team => team.id === teamId)) return false;
+  gameState.wageringTeamId = teamId;
   return true;
 }
 

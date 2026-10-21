@@ -190,7 +190,7 @@
           <!-- Daily Double Wagering Panel -->
           <div id="dd-wager-panel" class="glass" style="padding: 16px; border-radius: 8px; display: none;">
             <h4 style="margin-bottom: 10px; color: var(--color-accent);">Daily Double Wagering</h4>
-            <div style="display: flex; gap: 10px; align-items: center;">
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
               <label for="dd-team-select">Wagering Team:</label>
               <select id="dd-team-select" class="input-field" style="--input-width: auto; --input-pad: 6px 12px; --input-font: 14px; border-radius: 6px;"></select>
 
@@ -306,6 +306,7 @@
           <h1 id="special-title" class="dd-title">Daily Double</h1>
           <p class="dd-wager-prompt" id="special-prompt">Place your wager...</p>
           <h2 id="special-wager-display" class="dd-wager-reveal" style="display: none;">$0</h2>
+          <div id="dd-scoreboard" hidden role="group" aria-label="Current team scores"></div>
         </div>
 
         <!-- Embedded Media elements loaded dynamically -->
