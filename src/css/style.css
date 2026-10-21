@@ -461,7 +461,10 @@ h1, h2, h3, h4 {
 }
 #dd-scoreboard .team-score-card { min-width: 0; }
 #dd-scoreboard .dd-owner { border-color: var(--color-accent); }
-.dd-owner-label { color: var(--color-accent); font-weight: 700; margin-bottom: 8px; }
+.team-owner-name { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; color: var(--color-text); }
+.team-owner-marker { color: var(--color-accent); }
+.team-score-card.board-owner { border-color: var(--color-accent); }
+#board-control-team { width: 100%; min-width: 0; }
 #dd-team-select { max-width: 100%; }
 
 .daily-double-card {

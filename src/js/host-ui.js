@@ -22,6 +22,7 @@ onReady(() => {
   // Elements - Active Dashboard
   const activeGameContainer = document.getElementById('active-game-container');
   const hostTeamList = document.getElementById('host-team-list');
+  const boardControlSelect = document.getElementById('board-control-team');
   const hostRoundTitle = document.getElementById('host-round-title');
   const hostClueGrid = document.getElementById('host-clue-grid');
   
@@ -183,6 +184,13 @@ onReady(() => {
     (delayed ? scheduleSettingsSave : saveStateToStorage)();
     broadcastAction(action, payload);
   }
+
+  boardControlSelect.addEventListener('change', () => {
+    const teamId = boardControlSelect.value === '' ? null : Number(boardControlSelect.value);
+    if (!recordGameChange('Change board control', () => setBoardControl(teamId))) return;
+    publishChange();
+    renderSidebarScoreboards();
+  });
 
   // Wire settings element event listeners
   const hostSoundToggleBtn = document.getElementById('host-sound-toggle-btn');
@@ -386,6 +394,10 @@ onReady(() => {
 
   function renderSidebarScoreboards() {
     renderHistoryControls();
+    boardControlSelect.replaceChildren(new Option('Host chooses', ''));
+    gameState.teams.forEach(team => boardControlSelect.add(new Option(team.name, String(team.id))));
+    boardControlSelect.value = gameState.boardControlTeamId === null ? '' : String(gameState.boardControlTeamId);
+    boardControlSelect.disabled = !['single_jeopardy', 'double_jeopardy'].includes(gameState.gamePhase);
     hostTeamList.innerHTML = '';
     
     gameState.teams.forEach(team => {

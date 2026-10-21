@@ -73,10 +73,7 @@ onReady(() => {
       lastWagerScores = scoresKey;
       if (wagering) renderScoreboard(wagerScoreboardEl);
     }
-    if (wagering) {
-      const owner = gameState.teams.find(team => team.id === gameState.wageringTeamId);
-      specialPromptEl.textContent = owner ? `${owner.name} — place your wager` : 'Awaiting team wager...';
-    }
+    if (wagering) specialPromptEl.textContent = 'Place your wager...';
     const answer = document.getElementById('clue-answer-text');
     if (answer) {
       answer.textContent = gameState.answerVisible && clue ? clue.answer : '';
@@ -101,6 +98,7 @@ onReady(() => {
     if (!message.state.deck && message.deckId !== gameState.deck.id) { sendSyncRequest(); return; }
     const previousTeams = JSON.stringify(gameState.teams), previousSpent = JSON.stringify(gameState.spentClues), previousSettings = JSON.stringify(gameState.settings);
     const prevPhase = gameState.gamePhase, prevIntro = gameState.categoryIntroIndex, prevDeck = gameState.deck.id;
+    const previousControl = gameState.boardControlTeamId;
     requestedSession = message.sessionId;
     lastRevision = message.revision;
     lastContact = Date.now();
@@ -112,7 +110,7 @@ onReady(() => {
     if (prevDeck !== gameState.deck.id || prevPhase !== gameState.gamePhase || spentChanged) preloadDeckImages();
     if (gameState.gamePhase === 'setup') { hasRenderedWinnerReveal = false; }
     if (prevPhase !== gameState.gamePhase || prevDeck !== gameState.deck.id || !gridEl.hasChildNodes() || (gameState.gamePhase === 'completed' && teamsChanged)) renderCompleteBoard();
-    else { if (teamsChanged) renderScoreboard(); if (spentChanged) updateClueCardStates(); }
+    else { if (teamsChanged || previousControl !== gameState.boardControlTeamId) renderScoreboard(); if (spentChanged) updateClueCardStates(); }
     if (prevIntro !== gameState.categoryIntroIndex || prevPhase !== gameState.gamePhase || prevDeck !== gameState.deck.id) renderCategoryIntroductions();
     renderCurrentClue();
     console.log(`Board received: ${message.action}`);
@@ -307,6 +305,7 @@ onReady(() => {
 
   function renderScoreboard(container = scoreboardEl) {
     container.innerHTML = '';
+    const selectingClues = ['single_jeopardy', 'double_jeopardy'].includes(gameState.gamePhase);
     
     if (gameState.teams.length === 0) {
       container.innerHTML = '<p style="color: var(--color-text-muted);">No teams registered</p>';
@@ -317,14 +316,23 @@ onReady(() => {
       const activeBuzz = gameState.activeBuzzedTeamId === team.id;
       const isNegative = team.score < 0;
       const ownsDailyDouble = container === wagerScoreboardEl && team.id === gameState.wageringTeamId;
+      const controlsBoard = container === scoreboardEl && selectingClues && team.id === gameState.boardControlTeamId;
+      const marked = ownsDailyDouble || controlsBoard;
       
       const card = document.createElement('div');
-      card.className = `team-score-card glass ${activeBuzz ? 'active-buzz' : ''} ${ownsDailyDouble ? 'dd-owner' : ''}`;
+      card.className = `team-score-card glass ${activeBuzz ? 'active-buzz' : ''} ${ownsDailyDouble ? 'dd-owner' : ''} ${controlsBoard ? 'board-owner' : ''}`;
       card.style.setProperty('--team-color', team.color);
+      card.setAttribute('role', 'group');
+      const ownership = ownsDailyDouble ? 'Daily Double wagering team' : controlsBoard ? 'Selects the next clue' : '';
+      card.setAttribute('aria-label', ownership ? `${team.name}: ${ownership}` : team.name);
+      card.title = ownership;
       
       card.innerHTML = `
-        <div class="score-team-name">${escapeHTML(team.name)}</div>
-        ${ownsDailyDouble ? '<div class="dd-owner-label">Wagering team</div>' : ''}
+        <div class="score-team-name ${marked ? 'team-owner-name' : ''}">
+          ${marked ? '<span class="team-owner-marker" aria-hidden="true">▶</span>' : ''}
+          <span class="team-name-text" dir="auto">${escapeHTML(team.name)}</span>
+          ${marked ? '<span class="team-owner-marker" aria-hidden="true">◀</span>' : ''}
+        </div>
         <div class="score-amount ${isNegative ? 'negative' : ''}">$${team.score}</div>
       `;
       
@@ -455,8 +463,7 @@ onReady(() => {
     if (clue.isDailyDouble) {
       specialCardEl.style.display = 'block';
       specialTitleEl.textContent = 'Daily Double';
-      const owner = gameState.teams.find(team => team.id === gameState.wageringTeamId);
-      specialPromptEl.textContent = owner ? `${owner.name} wagered:` : 'Wager Placed:';
+      specialPromptEl.textContent = 'Wager Placed:';
       specialWagerEl.textContent = `$${gameState.currentWager}`;
       specialWagerEl.style.display = 'block';
     }
