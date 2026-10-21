@@ -6,13 +6,15 @@ CSV columns: `Round,Category,Value,Question,Answer,IsDailyDouble,MediaType,Media
 
 The host sidebar includes undo/redo, session backup/restore, timer pause/resume, and a lower-effects setting. Use **Edit loaded deck** to revise clue text, category names, values, Daily Doubles, and image paths; save changes or download the revised CSV. Editing preserves scores and spent clues and clears undo history. Backups include game state and history, while image files remain separate.
 
+The Daily Double wager splash shows every team's current score. The host's **Wagering Team** selection is highlighted with a gold border and label, updates live, and is preserved across reloads.
+
 Clue cards support keyboard activation with Enter/Space. During a clue: 1–4 selects a team, C/I grades, R reveals, S skips, and P pauses/resumes. Ctrl/Cmd+Z undoes; Shift+Ctrl/Cmd+Z redoes. Shortcuts do not intercept text entry.
 
 See [implementation and verification](docs/IMPLEMENTATION.md) for the reviewable commit sequence and measured limits.
 
 See [source refactors and measured size reductions](docs/CODE_SIZE_REDUCTIONS_2026-10-09.md) for the subsequent five cleanup commits and regression results.
 
-See [build optimizations and release verification](docs/BUILD_OPTIMIZATION_2026-10-09.md) for the current **37,306-byte** standalone release, reduced by **31.6%** with every feature retained.
+See [build optimizations and release verification](docs/BUILD_OPTIMIZATION_2026-10-09.md) for the **37,306-byte** October 9 build checkpoint, reduced by **31.6%** with every feature retained. The Daily Double score display brings the current release to **37,696 bytes**.
 
 The source of both screens is `index.html`. `host.html` and `board.html` are generated compatibility entry points; edit the shared template and regenerate them.
 
