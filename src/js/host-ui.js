@@ -857,6 +857,7 @@ onReady(() => {
         opt.textContent = t.name;
         ddTeamSelect.appendChild(opt);
       });
+      ddTeamSelect.value = String(gameState.wageringTeamId ?? gameState.teams[0]?.id);
       
     } else {
       ddWagerPanel.style.display = 'none';
@@ -871,6 +872,10 @@ onReady(() => {
     
     hostClueController.style.display = 'flex';
   }
+
+  ddTeamSelect.addEventListener('change', () => {
+    if (selectDailyDoubleTeam(Number(ddTeamSelect.value))) publishChange();
+  });
 
   if (ddWagerInput) {
     ddWagerInput.addEventListener('keydown', (e) => {

@@ -452,6 +452,18 @@ h1, h2, h3, h4 {
 }
 
 /* Daily Double / Final Jeopardy Bidding Card */
+#special-card { width: 100%; }
+#dd-scoreboard:not([hidden]) {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+#dd-scoreboard .team-score-card { min-width: 0; }
+#dd-scoreboard .dd-owner { border-color: var(--color-accent); }
+.dd-owner-label { color: var(--color-accent); font-weight: 700; margin-bottom: 8px; }
+#dd-team-select { max-width: 100%; }
+
 .daily-double-card {
   text-align: center;
   animation: cardFlip 0.8s cubic-bezier(0.4, 0, 0.2, 1);
@@ -469,6 +481,7 @@ h1, h2, h3, h4 {
 
 .dd-wager-prompt {
   font-size: 24px;
+  overflow-wrap: anywhere;
   color: var(--color-text-muted);
   margin-bottom: 12px;
 }

@@ -42,6 +42,7 @@ async function setup(csv = sample, options = {}) {
   await host.locator('#csv-upload').setInputFiles({ name: 'test.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await host.waitForFunction(() => document.getElementById('upload-status').textContent.startsWith('Success'));
   if (options.teamNames) {
+    await host.locator('#teams-count').selectOption(String(options.teamNames.length));
     for (const [index, name] of options.teamNames.entries()) await host.locator('.team-name-input').nth(index).fill(name);
   }
   await host.locator('#start-game-btn').click();
@@ -109,6 +110,60 @@ test('Daily Double scoring is restricted to its wagering team', () => withGame(
     await host.locator('#quick-score-teams-row .btn-incorrect').click();
     assert.equal((await state(host)).teams[0].score, -100);
     assert.equal((await state(host)).currentClue, null);
+  }
+));
+test('Daily Double splash shows every live team score only during wagering', () => withGame(
+  header + 'single,Daily,200,Secret daily clue,A,TRUE,none,\nsingle,Daily,400,Regular clue,A,FALSE,none,',
+  { teamNames: ['Café <b>🎬</b>', '你好 & Team', 'Zero', 'Long team name '.repeat(8)] }, async game => {
+    const { host } = game, board = await openBoard(game);
+    await board.emulateMedia({ reducedMotion: 'reduce' });
+    for (const [index, score] of ['1200', '-400', '0', '800'].entries()) {
+      await host.locator('.score-display-input').nth(index).fill(score);
+      await host.locator('.score-display-input').nth(index).press('Tab');
+    }
+    await host.locator('.host-clue-card').first().click();
+    const scores = board.locator('#dd-scoreboard');
+    await scores.waitFor({ state: 'visible' });
+    assert.deepEqual(await scores.locator('.score-team-name').allTextContents(), ['Café <b>🎬</b>', '你好 & Team', 'Zero', 'Long team name '.repeat(8).trim()]);
+    assert.deepEqual(await scores.locator('.score-amount').allTextContents(), ['$1200', '$-400', '$0', '$800']);
+    assert.equal(await scores.locator('b').count(), 0);
+    assert.equal(await scores.locator('.score-amount.negative').textContent(), '$-400');
+    assert.equal(await board.locator('#clue-display-text').textContent(), '');
+    assert.equal(await scores.locator('.dd-owner .score-team-name').textContent(), 'Café <b>🎬</b>');
+    await host.locator('#dd-team-select').selectOption('2');
+    await board.waitForFunction(() => document.querySelector('#dd-scoreboard .dd-owner .score-team-name')?.textContent === '你好 & Team');
+    assert.equal(await scores.locator('.dd-owner-label').textContent(), 'Wagering team');
+    assert.equal(await board.locator('#special-prompt').textContent(), '你好 & Team — place your wager');
+    await host.locator('.score-display-input').first().fill('1400');
+    await host.locator('.score-display-input').first().press('Tab');
+    await board.waitForFunction(() => document.querySelector('#dd-scoreboard .score-amount').textContent === '$1400');
+    await board.reload();
+    await scores.waitFor({ state: 'visible' });
+    assert.equal(await scores.locator('.score-amount').first().textContent(), '$1400');
+    assert.equal(await scores.locator('.dd-owner .score-team-name').textContent(), '你好 & Team');
+    await host.reload();
+    assert.equal(await host.locator('#dd-team-select').inputValue(), '2');
+    for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+      await board.setViewportSize(viewport);
+      assert.equal(await scores.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+      for (const card of await scores.locator('.team-score-card').all()) {
+        await card.scrollIntoViewIfNeeded();
+        assert.equal(await card.evaluate(el => {
+          const rect = el.getBoundingClientRect();
+          return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight;
+        }), true);
+      }
+    }
+    await host.locator('#dd-wager-input').fill('100');
+    await host.locator('#dd-submit-wager-btn').click();
+    await scores.waitFor({ state: 'hidden' });
+    assert.equal((await state(host)).wageringTeamId, 2);
+    assert.equal(await board.locator('#special-prompt').textContent(), '你好 & Team wagered:');
+    assert.equal(await board.locator('#clue-display-text').textContent(), 'Secret daily clue');
+    await host.locator('#host-clue-skip-btn').click();
+    await host.locator('.host-clue-card').nth(1).click();
+    await board.waitForFunction(() => document.getElementById('clue-display-text').textContent === 'Regular clue');
+    assert.equal(await scores.isVisible(), false);
   }
 ));
 test('redrawn score and quick grading controls apply changes exactly once', () => withGame(sample,
