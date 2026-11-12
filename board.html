@@ -18,8 +18,10 @@
       function initView() {
         const hostRoot = document.getElementById('host-app-root');
         const boardRoot = document.getElementById('board-app-root');
+        const resolvedView = hostRoot && !boardRoot ? 'host'
+          : (!hostRoot && boardRoot ? 'board' : activeView);
 
-        if (activeView === 'board') {
+        if (resolvedView === 'board') {
           if (hostRoot) hostRoot.remove(); // Prune host console elements to prevent overhead
           if (boardRoot) boardRoot.style.display = 'block';
           document.title = "Jeopardy Board Display";

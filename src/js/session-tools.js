@@ -31,6 +31,7 @@ function restoreGameplay(snapshot) {
   const names = new Map(gameState.teams.map(team => [team.id, { name: team.name, color: team.color }]));
   Object.assign(gameState, JSON.parse(JSON.stringify(snapshot)));
   gameState.teams.forEach(team => Object.assign(team, names.get(team.id)));
+  if (gameState.timer && !gameState.timer.paused && gameState.timer.deadline <= Date.now()) gameState.timer = null;
 }
 
 function undoGameChange() {
@@ -136,7 +137,8 @@ function validateGameplay(source, deck) {
     const team = teams.find(t => t.id === p.teamId); return team.finalWager === undefined || team.finalWager > p.startingScore;
   }))) throw new Error('Final judging has incomplete wagers.');
   const categories = deck[source.gamePhase === 'double_jeopardy' ? 'doubleJeopardy' : 'singleJeopardy'].categories;
-  if (source.categoryIntroIndex !== null && (!Number.isInteger(source.categoryIntroIndex) || source.categoryIntroIndex < 0 || source.categoryIntroIndex >= categories.length)) throw new Error('Invalid category introduction.');
+  const categoryIntroIndex = source.categoryIntroIndex ?? null;
+  if (categoryIntroIndex !== null && (!Number.isInteger(categoryIntroIndex) || categoryIntroIndex < 0 || categoryIntroIndex >= categories.length)) throw new Error('Invalid category introduction.');
   let timer = null;
   if (source.timer) {
     const t = source.timer;
@@ -147,7 +149,7 @@ function validateGameplay(source, deck) {
   }
   return { teams, currentClue, spentClues: [...spent], lockedOutTeamIds: [...locked], currentWager: source.currentWager,
     activeBuzzedTeamId: active, wageringTeamId: wagering, boardControlTeamId: boardControl, gamePhase: source.gamePhase, clueStage: source.clueStage,
-    categoryIntroIndex: source.categoryIntroIndex, answerVisible: Boolean(source.answerVisible),
+    categoryIntroIndex, answerVisible: Boolean(source.answerVisible),
     finalParticipants: participants.map(p => ({ teamId: p.teamId, startingScore: p.startingScore })), finalStage: source.finalStage, timer };
 }
 

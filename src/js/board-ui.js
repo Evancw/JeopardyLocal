@@ -4,10 +4,7 @@
  */
 
 onReady(() => {
-  const urlParams = new URLSearchParams(window.location.search);
-  const isBoardFile = window.location.pathname.endsWith('board.html');
-  const activeView = urlParams.get('view') || (isBoardFile ? 'board' : 'host');
-  if (activeView !== 'board') return;
+  if (isHostView()) return;
 
   const roundTitleEl = document.getElementById('round-title');
   const gridEl = document.getElementById('jeopardy-grid');
@@ -39,7 +36,7 @@ onReady(() => {
 
   loadStateFromStorage();
   let requestedSession = new URLSearchParams(window.location.search).get('session') || null;
-  let lastRevision = -1, lastContact = 0, lastClueView = '', lastTimer = '', lastBuzz = null;
+  let lastRevision = -1, lastContact = 0, lastClueView = '', lastTimer = '', lastBuzzKey = '';
   const connection = document.getElementById('connection-status');
   applySyncSettings();
   preloadDeckImages();
@@ -79,9 +76,11 @@ onReady(() => {
       answer.textContent = gameState.answerVisible && clue ? clue.answer : '';
       answer.style.display = gameState.answerVisible && clue ? 'inline-block' : 'none';
     }
-    if (gameState.activeBuzzedTeamId !== lastBuzz) {
-      lastBuzz = gameState.activeBuzzedTeamId;
-      if (lastBuzz) triggerBuzzerClaim(lastBuzz, false);
+    const buzzTeam = gameState.activeBuzzedTeamId ? gameState.teams.find(t => t.id === gameState.activeBuzzedTeamId) : null;
+    const buzzKey = buzzTeam ? `${buzzTeam.id}:${buzzTeam.name}:${buzzTeam.color}` : '';
+    if (buzzKey !== lastBuzzKey) {
+      lastBuzzKey = buzzKey;
+      if (buzzTeam) triggerBuzzerClaim(buzzTeam.id, false);
       else buzzAlertEl.style.display = 'none';
     }
     const timerKey = JSON.stringify(gameState.timer);
@@ -190,7 +189,7 @@ onReady(() => {
     const champions = sortedTeams.filter(t => t.score === highestScore);
     const runnersUp = sortedTeams.filter(t => t.score !== highestScore);
 
-    const champColor = champions[0].color;
+    const champColor = escapeHTML(champions[0].color);
     const champNames = champions.map(c => c.name).join(' & ');
     const champTitle = champions.length > 1 ? '🏆 JOINT CHAMPIONS 🏆' : '🏆 CHAMPION 🏆';
 
@@ -556,11 +555,14 @@ onReady(() => {
     timerFillEl.style.transform = 'scaleX(1)';
   }
 
+  let introShowTimer = null, introHideTimer = null;
   function renderCategoryIntroductions() {
     const overlay = document.getElementById('category-intro-overlay');
     const nameText = document.getElementById('intro-category-name');
     const countText = document.getElementById('intro-category-count');
     if (!overlay || !nameText || !countText) return;
+    clearTimeout(introShowTimer);
+    clearTimeout(introHideTimer);
     
     const isIntro = gameState.categoryIntroIndex !== null && gameState.categoryIntroIndex !== undefined;
     
@@ -576,19 +578,19 @@ onReady(() => {
         countText.textContent = `${idx + 1} of ${categories.length}`;
         
         overlay.style.display = 'flex';
-        setTimeout(() => overlay.classList.add('active'), 50);
+        introShowTimer = setTimeout(() => overlay.classList.add('active'), 50);
         
         // Play a brief select sound chime if category slides transition
         if (prevName !== newName && prevName !== 'CATEGORY NAME') {
           gameAudio.playSelect();
         }
+        return;
       }
-    } else {
-      overlay.classList.remove('active');
-      setTimeout(() => {
-        overlay.style.display = 'none';
-      }, 400); // Wait for transition fade out
     }
+    overlay.classList.remove('active');
+    introHideTimer = setTimeout(() => {
+      overlay.style.display = 'none';
+    }, 400); // Wait for transition fade out
   }
 
   function preloadDeckImages() {

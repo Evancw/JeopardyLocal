@@ -240,3 +240,47 @@ test('Final music schedules the configured duration with one oscillator', () => 
   assert.equal(oscillators, 1);
   assert.equal(stops[0], 110.8);
 });
+test('round transitions undo cleanly, expired timers clear, and legacy untrimmed saves recover', () => {
+  const e = engine();
+  const csv = header + row + '\ndouble,Double,400,Q2,A2,FALSE,none,\nfinal,Final,,QF,AF,FALSE,none,';
+  vm.runInContext(`gameState.deck = processCSVDeck(${JSON.stringify(csv)}); gameState.teams = [{id:1,name:'A',color:'#112233',score:0},{id:2,name:'B',color:'#aabbcc',score:0}]; beginRound('single_jeopardy');`, e);
+  vm.runInContext(`openGameClue(gameState.deck.singleJeopardy.categories[0].clues[0]); startGameTimer('response', Date.now() - 10000); gradeClue(1, 'correct');`, e);
+  assert.equal(vm.runInContext(`recordGameChange('Advance to Double', () => beginRound('double_jeopardy'))`, e), true);
+  assert.equal(vm.runInContext('gameState.gamePhase', e), 'double_jeopardy');
+  assert.equal(e.undoGameChange(), true);
+  assert.equal(vm.runInContext('gameState.gamePhase', e), 'single_jeopardy');
+  assert.equal(e.undoGameChange(), true);
+  assert.equal(vm.runInContext('gameState.timer', e), null);
+  assert.equal(e.redoGameChange(), true);
+  assert.equal(e.redoGameChange(), true);
+  assert.equal(vm.runInContext('gameState.gamePhase', e), 'double_jeopardy');
+  const backup = JSON.parse(e.exportSessionBackup());
+  delete backup.state.categoryIntroIndex;
+  assert.equal(e.parseSessionBackup(JSON.stringify(backup)).categoryIntroIndex, null);
+  const deck = e.processCSVDeck(header + row);
+  deck.singleJeopardy.categories[0].clues[0].question = '  Question?  ';
+  e.localStorage.setItem('jeopardy_local_state', JSON.stringify({ deck, teams: [{id:1,name:'A',color:'#112233',score:0},{id:2,name:'B',color:'#aabbcc',score:0}], gamePhase: 'single_jeopardy', spentClues: [], lockedOutTeamIds: [], finalParticipants: [], finalStage: 'category', clueStage: 'idle', currentClue: null, currentWager: null, activeBuzzedTeamId: null, wageringTeamId: null }));
+  assert.equal(e.loadStateFromStorage(), true);
+  assert.equal(vm.runInContext('gameState.deck.singleJeopardy.categories[0].clues[0].question', e), 'Question?');
+  e.saveStateToStorage();
+  e.localStorage.setItem(`jeopardy_deck:${vm.runInContext('gameState.deck.id', e)}`, '');
+  e.saveStateToStorage();
+  assert.ok(e.localStorage.getItem(`jeopardy_deck:${vm.runInContext('gameState.deck.id', e)}`));
+});
+test('audio engine handles missing AudioContext, rejected resume, and stops overlapping Final music', () => {
+  const e = engine();
+  e.window = {};
+  if (!optimizedBundle) vm.runInContext(fs.readFileSync('src/js/audio.js', 'utf8'), e);
+  assert.doesNotThrow(() => vm.runInContext('gameAudio.playSelect()', e));
+  let stopped = 0, oscillators = 0;
+  const param = () => ({ setValueAtTime() {}, exponentialRampToValueAtTime() {} });
+  e.window = { AudioContext: class {
+    constructor() { this.state = 'suspended'; this.currentTime = 0; this.destination = {}; }
+    resume() { return Promise.reject(new Error('NotAllowedError')); }
+    createOscillator() { oscillators++; return { frequency:param(), connect(){}, disconnect(){}, start(){}, stop(){ stopped++; } }; }
+    createGain() { return { gain:param(), connect(){}, disconnect(){} }; }
+  } };
+  vm.runInContext('gameAudio.ctx = null; gameAudio.playFinalJeopardy(5); gameAudio.playFinalJeopardy(5);', e);
+  assert.equal(oscillators, 2);
+  assert.equal(stopped, 3);
+});

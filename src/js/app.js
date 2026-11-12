@@ -65,6 +65,11 @@ const STORAGE_KEY = 'jeopardy_local_state';
 
 function isHostView() {
   if (typeof window === 'undefined') return true;
+  if (typeof document !== 'undefined' && typeof document.getElementById === 'function') {
+    const hasHost = Boolean(document.getElementById('host-app-root'));
+    const hasBoard = Boolean(document.getElementById('board-app-root'));
+    if (hasHost !== hasBoard) return hasHost;
+  }
   return new URLSearchParams(window.location.search).get('view') !== 'board' && !window.location.pathname.endsWith('board.html');
 }
 
@@ -76,8 +81,9 @@ function saveStateToStorage() {
   const status = typeof document === 'undefined' ? null : document.getElementById('storage-status');
   try {
     ensureDeckIds(gameState.deck);
-    if (savedDeckId !== gameState.deck.id) {
-      localStorage.setItem(`jeopardy_deck:${gameState.deck.id}`, JSON.stringify(gameState.deck));
+    const deckKey = `jeopardy_deck:${gameState.deck.id}`;
+    if (savedDeckId !== gameState.deck.id || !localStorage.getItem(deckKey)) {
+      localStorage.setItem(deckKey, JSON.stringify(gameState.deck));
       savedDeckId = gameState.deck.id;
     }
     const historyKey = `${STORAGE_KEY}:history:${gameState.sessionId}`;
@@ -117,7 +123,25 @@ function loadStateFromStorage() {
         const history = JSON.parse(localStorage.getItem(parsed.historyKey) || '{}');
         for (const key of ['undoStack', 'redoStack', 'scoreEvents']) if (Array.isArray(history[key])) parsed[key] = history[key];
       }
+      for (const key of ['undoStack', 'redoStack', 'scoreEvents']) if (!Array.isArray(parsed[key])) parsed[key] = [];
       ensureDeckIds(parsed.deck);
+      for (const round of ['singleJeopardy', 'doubleJeopardy']) {
+        for (const cat of parsed.deck[round].categories) {
+          if (typeof cat.name === 'string') cat.name = cat.name.trim();
+          if (Array.isArray(cat.clues)) {
+            for (const clue of cat.clues) {
+              for (const field of ['category', 'question', 'answer', 'mediaUrl']) {
+                if (typeof clue[field] === 'string') clue[field] = clue[field].trim();
+              }
+            }
+          }
+        }
+      }
+      if (parsed.deck.finalJeopardy) {
+        for (const field of ['category', 'question', 'answer', 'mediaUrl']) {
+          if (typeof parsed.deck.finalJeopardy[field] === 'string') parsed.deck.finalJeopardy[field] = parsed.deck.finalJeopardy[field].trim();
+        }
+      }
       const storedSpent = parsed.spentClues || [];
       parsed.spentClues = ['singleJeopardy', 'doubleJeopardy'].flatMap(round => parsed.deck[round].categories.flatMap(cat =>
         cat.clues.filter(clue => storedSpent.includes(clue.id) || storedSpent.includes(`${round === 'singleJeopardy' ? 'single_jeopardy' : 'double_jeopardy'}-${cat.name}-${clue.value}`)).map(clue => clue.id)));
@@ -136,7 +160,9 @@ function loadStateFromStorage() {
       }
       if (!parsed.clueStage) gameState.clueStage = gameState.currentClue ?
         (gameState.currentClue.isDailyDouble && !gameState.currentWager ? 'wager' : 'answering') : 'idle';
-      if (!parsed.wageringTeamId && gameState.currentClue?.isDailyDouble) gameState.wageringTeamId = gameState.activeBuzzedTeamId;
+      if (!parsed.wageringTeamId && gameState.currentClue?.isDailyDouble) {
+        gameState.wageringTeamId = gameState.activeBuzzedTeamId ?? gameState.boardControlTeamId ?? gameState.teams[0]?.id ?? null;
+      }
       gameState.boardControlTeamId = parsed.boardControlTeamId ?? null;
       if (!parsed.finalParticipants && gameState.gamePhase === 'final_jeopardy') {
         gameState.finalParticipants = gameState.teams.filter(t => t.score > 0 || typeof t.finalWager === 'number')
@@ -271,6 +297,7 @@ function setDailyDoubleWager(teamId, wager) {
   gameState.wageringTeamId = teamId;
   gameState.activeBuzzedTeamId = teamId;
   gameState.clueStage = 'answering';
+  startGameTimer('response');
   return true;
 }
 

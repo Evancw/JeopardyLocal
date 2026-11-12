@@ -38,7 +38,7 @@ body {
   color: var(--color-text);
   font-family: var(--font-family-body);
   overflow-x: hidden;
-  height: 100vh;
+  min-height: 100vh;
   width: 100vw;
   background-image: 
     radial-gradient(at 0% 0%, hsla(210, 100%, 15%, 0.3) 0px, transparent 50%),
@@ -209,11 +209,16 @@ h1, h2, h3, h4 {
 }
 
 /* The Grid */
+#jeopardy-grid-container {
+  min-height: 0;
+}
+
 .jeopardy-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 16px;
   flex-grow: 1;
+  min-height: 0;
   margin-bottom: 24px;
   contain: layout style paint;
 }
@@ -386,6 +391,7 @@ h1, h2, h3, h4 {
 #board-scoreboard {
   display: flex;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 24px;
   padding: 10px 0;
 }
@@ -657,8 +663,6 @@ h1, h2, h3, h4 {
   flex-direction: column;
   gap: 20px;
   box-shadow: var(--shadow-glass);
-  content-visibility: auto;
-  contain-intrinsic-size: 200px;
 }
 
 .host-question-display {
@@ -750,6 +754,7 @@ h1, h2, h3, h4 {
 .category-title, .dd-title, .score-team-name { overflow-wrap: anywhere; }
 #countdown-display { position: fixed; top: 16px; right: 16px; z-index: 2000; padding: 12px; background: var(--bg-dark); border-radius: 8px; }
 .timer-settings { display: grid; grid-template-columns: 1fr 72px; gap: 8px; margin-bottom: 16px; align-items: center; }
+.sidebar-section-divider > label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--color-text-muted); margin-bottom: 12px; cursor: pointer; }
 .timer-settings input { width: 72px; padding: 6px; }
 .timer-settings p, .timer-settings button { grid-column: 1 / -1; }
 :focus-visible { outline: 3px solid var(--color-accent); outline-offset: 3px; }

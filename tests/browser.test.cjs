@@ -439,3 +439,26 @@ test('missing clue images produce a readable offline fallback', () => withGame(
     await board.waitForFunction(() => document.getElementById('clue-media').textContent.includes('Image unavailable'));
   }
 ));
+test('Daily Double locks answer reveal during wager, escapes completed names, and updates mid-game edits', () => withGame(
+  header + 'single,Daily,200,Q1,SecretA,TRUE,none,\ndouble,Next,400,Q2,A2,FALSE,none,',
+  { teamNames: ['Café <b>🎬</b>', 'Team 2'] }, async game => {
+    const { host } = game, board = await openBoard(game);
+    await host.locator('.host-clue-card').click();
+    assert.equal(await host.locator('#host-reveal-answer-btn').isDisabled(), true);
+    await host.keyboard.press('r');
+    assert.equal((await state(host)).answerVisible, false);
+    await host.locator('#dd-wager-input').fill('100');
+    await host.locator('#dd-submit-wager-btn').click();
+    assert.equal(await host.locator('#host-reveal-answer-btn').isDisabled(), false);
+    await host.locator('details summary:has-text("Edit Teams Mid-Game")').click();
+    await host.locator('.team-name-edit-input').first().fill('Renamed <i>Team</i>');
+    await board.waitForFunction(() => document.getElementById('buzz-team-name')?.textContent === 'Renamed <i>Team</i>');
+    assert.equal(await host.locator('#quick-score-teams-row span').first().textContent(), 'Renamed <i>Team</i>');
+    await host.locator('#host-clue-correct-btn').click();
+    await host.locator('#btn-goto-double').click();
+    await host.locator('#host-skip-categories-btn').click();
+    await host.locator('#btn-goto-complete').click();
+    assert.equal(await host.locator('#host-clue-grid h4').textContent(), 'Renamed <i>Team</i>');
+    assert.equal(await host.locator('#host-clue-grid i').count(), 0);
+  }
+));

@@ -9,12 +9,15 @@ const gameAudio = {
   activeNodes: new Set(),
 
   init() {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return false;
     if (!this.ctx) {
-      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.ctx = new AudioCtx();
     }
     if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      Promise.resolve(this.ctx.resume()).catch(() => {});
     }
+    return true;
   },
 
   toggle(state) {
@@ -61,8 +64,7 @@ const gameAudio = {
   },
 
   playSelect() {
-    if (!this.enabled) return;
-    this.init();
+    if (!this.enabled || !this.init()) return;
     
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -83,8 +85,7 @@ const gameAudio = {
   },
 
   playBuzzer() {
-    if (!this.enabled) return;
-    this.init();
+    if (!this.enabled || !this.init()) return;
     
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -105,8 +106,7 @@ const gameAudio = {
   },
 
   playCorrect() {
-    if (!this.enabled) return;
-    this.init();
+    if (!this.enabled || !this.init()) return;
     
     const now = this.ctx.currentTime;
     const playNote = (freq, start, duration) => {
@@ -135,8 +135,7 @@ const gameAudio = {
   },
 
   playIncorrect() {
-    if (!this.enabled) return;
-    this.init();
+    if (!this.enabled || !this.init()) return;
     
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -158,8 +157,7 @@ const gameAudio = {
   },
 
   playDailyDouble() {
-    if (!this.enabled) return;
-    this.init();
+    if (!this.enabled || !this.init()) return;
     
     const now = this.ctx.currentTime;
     // Dramatic synthesized laser slide sweep
@@ -188,8 +186,8 @@ const gameAudio = {
   },
 
   playFinalJeopardy(seconds = 30) {
-    if (!this.enabled || seconds <= 0) return;
-    this.init();
+    if (!this.enabled || seconds <= 0 || !this.init()) return;
+    this.stopAll();
     const now = this.ctx.currentTime;
     const melody = [440, 493.88, 523.25, 493.88, 440, 392, 349.23, 392,
       440, 493.88, 523.25, 587.33, 659.25, 587.33, 523.25, 440];
@@ -211,8 +209,7 @@ const gameAudio = {
   },
 
   playVictoryFanfare() {
-    if (!this.enabled) return;
-    this.init();
+    if (!this.enabled || !this.init()) return;
     
     const now = this.ctx.currentTime;
     const playNote = (freq, start, duration, type = 'triangle', volume = 0.15) => {

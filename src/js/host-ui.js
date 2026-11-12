@@ -4,11 +4,7 @@
  */
 
 onReady(() => {
-  const urlParams = new URLSearchParams(window.location.search);
-  const isHostFile = window.location.pathname.endsWith('host.html');
-  const isBoardFile = window.location.pathname.endsWith('board.html');
-  const activeView = urlParams.get('view') || (isHostFile ? 'host' : (isBoardFile ? 'board' : 'host'));
-  if (activeView !== 'host') return;
+  if (!isHostView()) return;
 
   // Elements - Setup Screen
   const setupContainer = document.getElementById('setup-container');
@@ -63,6 +59,19 @@ onReady(() => {
     return maxRoundClueValue() || (gameState.gamePhase === 'double_jeopardy' ? 2000 : 1000);
   }
 
+  function refreshSetupDeckStatus() {
+    if (gameState.deck && availablePhases().length > 0) {
+      const displayLabel = gameState.deckName ? `Active deck: ${gameState.deckName}` : 'Active game deck loaded.';
+      uploadStatus.textContent = displayLabel;
+      uploadStatus.style.color = 'var(--color-correct)';
+      startGameBtn.disabled = false;
+    } else {
+      uploadStatus.textContent = 'No file selected.';
+      uploadStatus.style.color = 'var(--color-text-muted)';
+      startGameBtn.disabled = true;
+    }
+  }
+
   // Check if session can be recovered from storage immediately
   const recovered = loadStateFromStorage();
   if (recovered && gameState.gamePhase !== 'setup') {
@@ -70,12 +79,7 @@ onReady(() => {
   } else {
     // Standard setup layout init
     renderTeamSetupInputs();
-    if (gameState.deck && (gameState.deck.singleJeopardy?.categories?.length > 0 || gameState.deck.finalJeopardy)) {
-      const displayLabel = gameState.deckName ? `Active deck: ${gameState.deckName}` : 'Active game deck loaded.';
-      uploadStatus.textContent = displayLabel;
-      uploadStatus.style.color = 'var(--color-correct)';
-      startGameBtn.disabled = false;
-    }
+    refreshSetupDeckStatus();
   }
 
   // --- Settings & Synchronization Helpers ---
@@ -149,6 +153,8 @@ onReady(() => {
         team.color = colorInput.value;
         publishChange('SYNC_STATE', null, true);
         renderSidebarScoreboards();
+        if (gameState.currentClue && gameState.gamePhase !== 'final_jeopardy') renderClueController();
+        if (['final_jeopardy', 'completed'].includes(gameState.gamePhase)) renderPresenterGrid();
       };
       
       nameInput.addEventListener('input', updateTeam);
@@ -256,7 +262,7 @@ onReady(() => {
     const remaining = timerRemaining();
     const status = document.getElementById('host-timer-status');
     if (timerToggle) { timerToggle.disabled = !timer || !remaining; timerToggle.textContent = timer?.paused ? 'Resume timer' : 'Pause timer'; }
-    if (status) status.textContent = timer ? `${timer.paused ? 'Paused · ' : ''}${Math.ceil(remaining / 1000)} seconds` : 'Timer ready';
+    if (status) status.textContent = timer ? (remaining === 0 ? "Time's up" : `${timer.paused ? 'Paused · ' : ''}${Math.ceil(remaining / 1000)} seconds`) : 'Timer ready';
   }, 250);
   window.addEventListener('pagehide', () => clearInterval(timerDisplayInterval), { once: true });
 
@@ -266,12 +272,16 @@ onReady(() => {
   // --- SETUP WORKFLOW ---
 
   // Trigger File Dialog on button click
-  csvUploadTrigger.addEventListener('click', () => csvUploadInput.click());
+  csvUploadTrigger.addEventListener('click', () => {
+    csvUploadInput.value = '';
+    csvUploadInput.click();
+  });
 
-  let importSequence = 0;
+  let importSequence = 0, selectedDeckFile = null;
   function readDeckFile() {
-    const file = csvUploadInput.files[0];
+    const file = csvUploadInput.files[0] || selectedDeckFile;
     if (!file) return;
+    selectedDeckFile = file;
     const sequence = ++importSequence;
     startGameBtn.disabled = true;
     const details = document.getElementById('import-details');
@@ -281,6 +291,8 @@ onReady(() => {
       uploadStatus.style.color = 'var(--color-incorrect)';
       if (details) details.textContent = message;
       if (report) { report.hidden = false; report.open = true; }
+      const editSetupBtn = document.getElementById('edit-deck-setup');
+      if (editSetupBtn) editSetupBtn.disabled = true;
     };
     if (file.size > 2 * 1024 * 1024) { fail('File exceeds the 2 MB limit.'); return; }
     uploadStatus.textContent = `Reading ${file.name}...`;
@@ -308,7 +320,10 @@ onReady(() => {
     };
     reader.readAsText(file, document.getElementById('csv-encoding')?.value || 'utf-8');
   }
-  csvUploadInput.addEventListener('change', readDeckFile);
+  csvUploadInput.addEventListener('change', () => {
+    if (csvUploadInput.files[0]) selectedDeckFile = csvUploadInput.files[0];
+    readDeckFile();
+  });
   document.getElementById('csv-encoding')?.addEventListener('change', readDeckFile);
   document.getElementById('csv-delimiter')?.addEventListener('change', readDeckFile);
 
@@ -322,8 +337,12 @@ onReady(() => {
     if (gameState.teams && gameState.teams.length > 0 && !teamSetupRows.dataset.populated) {
       count = gameState.teams.length;
       teamsCountSelect.value = count.toString();
-      teamSetupRows.dataset.populated = "true";
     }
+    const existingInputs = Array.from(teamSetupRows.querySelectorAll('.form-group')).map(row => ({
+      name: row.querySelector('.team-name-input')?.value,
+      color: row.querySelector('.team-color-input')?.value
+    }));
+    teamSetupRows.dataset.populated = "true";
 
     teamSetupRows.innerHTML = '';
 
@@ -336,8 +355,8 @@ onReady(() => {
 
     for (let i = 0; i < count; i++) {
       const existingTeam = gameState.teams && gameState.teams[i];
-      const nameVal = existingTeam ? existingTeam.name : `Team ${i+1}`;
-      const colorVal = existingTeam ? existingTeam.color : (defaultColors[i] || '#ffffff');
+      const nameVal = existingInputs[i]?.name ?? (existingTeam ? existingTeam.name : `Team ${i+1}`);
+      const colorVal = existingInputs[i]?.color ?? (existingTeam ? existingTeam.color : (defaultColors[i] || '#ffffff'));
 
       const row = document.createElement('div');
       row.className = 'form-group';
@@ -366,6 +385,10 @@ onReady(() => {
       color: colors[index]
     }));
 
+    gameState.undoStack = [];
+    gameState.redoStack = [];
+    gameState.scoreEvents = [];
+    historyGeneration++;
     beginRound(availablePhases()[0]);
     
     // Purge active session state for a pristine start
@@ -385,6 +408,7 @@ onReady(() => {
     setupContainer.style.display = 'none';
     activeGameContainer.style.display = 'grid';
     
+    initSettingsUI();
     renderSidebarScoreboards();
     renderPresenterGrid();
     renderRoundTransitions();
@@ -424,24 +448,43 @@ onReady(() => {
       input.addEventListener('change', (e) => {
         const text = e.target.value.trim();
         const val = /^-?\d+$/.test(text) ? Number(text) : NaN;
-        if (Number.isSafeInteger(val)) {
-          recordGameChange(`Set ${team.name}'s score`, () => { team.score = val; return true; });
-          publishChange();
-          renderSidebarScoreboards();
+        if (!Number.isSafeInteger(val)) {
+          e.target.value = team.score;
+          return;
         }
+        recordGameChange(`Set ${team.name}'s score`, () => {
+          team.score = val;
+          syncFinalParticipantsBeforeJudging();
+          return true;
+        });
+        publishChange();
+        renderSidebarScoreboards();
+        if (['final_jeopardy', 'completed'].includes(gameState.gamePhase)) renderPresenterGrid();
       });
 
       hostTeamList.appendChild(card);
     });
   }
 
+  function syncFinalParticipantsBeforeJudging() {
+    if (gameState.gamePhase === 'final_jeopardy' && gameState.finalStage !== 'judging') {
+      gameState.finalParticipants = gameState.teams.filter(t => t.score > 0)
+        .map(t => ({ teamId: t.id, startingScore: t.score }));
+    }
+  }
+
   function adjustTeamScore(teamId, delta) {
     const team = gameState.teams.find(t => t.id === teamId);
     if (team) {
       if (!Number.isSafeInteger(team.score + delta)) return;
-      recordGameChange(`Adjust ${team.name}'s score`, () => { team.score += delta; return true; });
+      recordGameChange(`Adjust ${team.name}'s score`, () => {
+        team.score += delta;
+        syncFinalParticipantsBeforeJudging();
+        return true;
+      });
       publishChange();
       renderSidebarScoreboards();
+      if (['final_jeopardy', 'completed'].includes(gameState.gamePhase)) renderPresenterGrid();
     }
   }
 
@@ -472,7 +515,12 @@ onReady(() => {
   btnGotoComplete.addEventListener('click', () => advanceRound('completed'));
 
   function advanceRound(nextPhase) {
-    if (!beginRound(nextPhase)) return;
+    const labels = {
+      double_jeopardy: 'Advance to Double Jeopardy',
+      final_jeopardy: 'Advance to Final Jeopardy',
+      completed: 'Complete Game Session'
+    };
+    if (!recordGameChange(labels[nextPhase] || 'Advance round', () => beginRound(nextPhase))) return;
     publishChange('SET_PHASE', { gamePhase: nextPhase });
     hostClueController.style.display = 'none';
     renderActiveGameUI();
@@ -488,6 +536,7 @@ onReady(() => {
   function changeCategory(direction) {
     const categories = roundCategories();
     const next = gameState.categoryIntroIndex + direction;
+    if (direction !== 0 && next < 0) return;
     gameState.categoryIntroIndex = direction === 0 || next >= categories.length ? null : next;
     publishChange(); renderActiveGameUI();
   }
@@ -499,13 +548,13 @@ onReady(() => {
 
     inputs.forEach(input => {
       const teamId = parseInt(input.dataset.teamId, 10);
-      const team = gameState.teams.find(t => t.id === teamId);
+      const participant = gameState.finalParticipants.find(p => p.teamId === teamId);
       const wager = parsePoints(input.value, true);
       const errorDiv = document.getElementById(`error-team-${teamId}`);
 
-      if (wager === null || wager > gameState.finalParticipants.find(p => p.teamId === teamId).startingScore) {
+      if (wager === null || !participant || wager > participant.startingScore) {
         if (errorDiv) {
-          errorDiv.textContent = `Wager must be between $0 and $${team.score}.`;
+          errorDiv.textContent = `Wager must be between $0 and $${participant?.startingScore ?? 0}.`;
           errorDiv.style.display = 'block';
         }
         valid = false;
@@ -543,6 +592,7 @@ onReady(() => {
     'host-skip-categories-btn': () => changeCategory(0),
     'host-goto-complete-btn': () => advanceRound('completed'),
     'host-final-complete-btn': () => advanceRound('completed'),
+    'host-reset-game-btn': () => confirmAndResetGame(),
     'host-reveal-clue-btn': revealFinalClue,
     'host-reveal-category-btn': () => {
       if (gameState.deck.finalJeopardy) {
@@ -740,7 +790,7 @@ onReady(() => {
           
           <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: 12px; padding: 24px 40px; max-width: 500px; width: 100%;">
             <span style="font-size: 14px; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; letter-spacing: 0.1em; display: block; margin-bottom: 8px;">Champion</span>
-            <h4 style="font-size: 28px; font-weight: 800; color: #fff; margin-bottom: 8px;">${champNames || 'No Teams'}</h4>
+            <h4 style="font-size: 28px; font-weight: 800; color: #fff; margin-bottom: 8px;">${escapeHTML(champNames) || 'No Teams'}</h4>
             <span style="font-size: 24px; font-weight: 800; color: var(--color-correct);">$${highestScore}</span>
           </div>
 
@@ -751,22 +801,6 @@ onReady(() => {
           </button>
         </div>
       `;
-      
-      // Bind reset click listener securely
-      setTimeout(() => {
-        const resetBtn = document.getElementById('host-reset-game-btn');
-        if (resetBtn) {
-          resetBtn.addEventListener('click', () => {
-            if (confirm("Are you sure you want to reset and start a new game? This clears current scores but preserves the loaded CSV game deck in memory.")) {
-              resetGameState();
-              broadcastState(true);
-              setTimeout(() => {
-                window.location.reload();
-              }, 150);
-            }
-          });
-        }
-      }, 50);
       return;
     }
 
@@ -854,12 +888,14 @@ onReady(() => {
       if (ddWagerError) {
         ddWagerError.style.display = 'none';
       }
+      ddWagerInput.value = '';
       ddWagerInput.style.borderColor = 'var(--border-glass)';
       buzzerActionPanel.style.display = 'none';
       quickScorePanel.style.display = 'none';
       
       hostClueCorrectBtn.disabled = true;
       hostClueIncorrectBtn.disabled = true;
+      hostRevealAnswerBtn.disabled = true;
       
       // Populate wagering team selector
       ddTeamSelect.innerHTML = '';
@@ -880,6 +916,7 @@ onReady(() => {
       renderQuickScoreButtons();
       hostClueCorrectBtn.disabled = !gameState.activeBuzzedTeamId;
       hostClueIncorrectBtn.disabled = !gameState.activeBuzzedTeamId;
+      hostRevealAnswerBtn.disabled = false;
     }
     
     hostClueController.style.display = 'flex';
@@ -933,6 +970,7 @@ onReady(() => {
     ddWagerInput.style.borderColor = 'var(--border-glass)';
     
     if (!setDailyDoubleWager(teamId, wager)) return;
+    ddWagerInput.value = '';
     publishChange('SET_WAGER', { wager });
     
     ddWagerPanel.style.display = 'none';
@@ -941,12 +979,10 @@ onReady(() => {
     buzzerActionPanel.style.display = 'block';
     quickScorePanel.style.display = 'block';
     renderDailyDoubleBuzzerButton(teamId);
-    
-    // Trigger the active buzzer state
-    assignActiveBuzzerTeam(teamId);
-    
-    // Render the quick score buttons for the wagering team
     renderQuickScoreButtons();
+    hostClueCorrectBtn.disabled = false;
+    hostClueIncorrectBtn.disabled = false;
+    hostRevealAnswerBtn.disabled = false;
   });
 
   function renderDailyDoubleBuzzerButton(teamId) {
@@ -1072,7 +1108,7 @@ onReady(() => {
   hostClueSkipBtn.addEventListener('click', () => submitGrade(null, 'skip'));
 
   hostRevealAnswerBtn.addEventListener('click', () => {
-    if (gameState.currentClue) {
+    if (gameState.currentClue && gameState.clueStage === 'answering') {
       gameState.answerVisible = true;
       publishChange('REVEAL_ANSWER', { answer: gameState.currentClue.answer });
     }
@@ -1103,12 +1139,16 @@ onReady(() => {
     try {
       if (file.size > 5 * 1024 * 1024) throw new Error('Backup exceeds 5 MB.');
       const restored = parseSessionBackup(await file.text());
-      if (restored.timer) { restored.timer.remaining = timerRemaining(restored.timer); restored.timer.paused = true; }
+      if (restored.timer) {
+        const remaining = timerRemaining(restored.timer);
+        if (remaining > 0) { restored.timer.remaining = remaining; restored.timer.paused = true; }
+        else restored.timer = null;
+      }
       Object.assign(gameState, restored);
       historyGeneration++;
       publishChange('SYNC_STATE', { fullSnapshot: true });
-      if (gameState.gamePhase === 'setup') { activeGameContainer.style.display = 'none'; setupContainer.style.display = 'block'; renderTeamSetupInputs(); startGameBtn.disabled = false; }
-      else { launchActiveDashboard(); initSettingsUI(); }
+      if (gameState.gamePhase === 'setup') showSetupScreen(true);
+      else launchActiveDashboard();
       setStatus('Session restored. Any active timer is paused.');
     } catch (error) { setStatus(error.message); }
     sessionInput.value = '';
@@ -1128,17 +1168,27 @@ onReady(() => {
     else if (connectionStatus) connectionStatus.textContent = 'Popup blocked · allow popups and try again';
   });
 
+  function showSetupScreen(syncSettings = false) {
+    activeGameContainer.style.display = 'none';
+    hostClueController.style.display = 'none';
+    setupContainer.style.display = 'block';
+    teamSetupRows.dataset.populated = '';
+    renderTeamSetupInputs();
+    refreshSetupDeckStatus();
+    refreshEditorButtons();
+    if (syncSettings) initSettingsUI();
+  }
+
+  function confirmAndResetGame() {
+    if (!confirm("Are you sure you want to reset and start a new game? This clears current scores but preserves the loaded CSV game deck in memory.")) return;
+    resetGameState();
+    broadcastState(true);
+    showSetupScreen();
+  }
+
   // Sidebar Reset Game Session click listener
   if (resetGameBtn) {
-    resetGameBtn.addEventListener('click', () => {
-      if (confirm("Are you sure you want to reset and start a new game? This clears current scores but preserves the loaded CSV game deck in memory.")) {
-        resetGameState();
-        broadcastState(true);
-        setTimeout(() => {
-          window.location.reload();
-        }, 150);
-      }
-    });
+    resetGameBtn.addEventListener('click', confirmAndResetGame);
   }
 
   initDeckEditor(() => {
@@ -1160,7 +1210,7 @@ onReady(() => {
     if (['Enter', ' '].includes(event.key) && event.target.classList.contains('host-clue-card')) { event.preventDefault(); event.target.click(); }
   });
   document.addEventListener('keydown', event => {
-    if (event.target.closest('input, textarea, select, [contenteditable="true"]') || document.getElementById('deck-editor').open) return;
+    if (gameState.gamePhase === 'setup' || event.target.closest('input, textarea, select, [contenteditable="true"]') || document.getElementById('deck-editor')?.open) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); restoreHistory(event.shiftKey); return; }
     if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
     const key = event.key.toLowerCase();

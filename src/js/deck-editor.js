@@ -69,6 +69,12 @@ function initDeckEditor(onChanged) {
     for (const key of ['category', 'value', 'question', 'answer', 'mediaType', 'mediaUrl']) fields[key].value = clue[key];
     fields.isDailyDouble.checked = clue.isDailyDouble;
     fields.value.disabled = entry.round === 'final'; fields.isDailyDouble.disabled = entry.round === 'final';
+    fields.mediaUrl.disabled = fields.mediaType.value === 'none';
+    const categories = entry.category ? gameState.deck[entry.round].categories : [];
+    const catIndex = entry.category ? categories.indexOf(entry.category) : -1;
+    const earlierBtn = document.getElementById('category-earlier'), laterBtn = document.getElementById('category-later');
+    if (earlierBtn) earlierBtn.disabled = !entry.category || catIndex <= 0;
+    if (laterBtn) laterBtn.disabled = !entry.category || catIndex < 0 || catIndex >= categories.length - 1;
     showPreview();
   }
   function populate(id) {
@@ -87,6 +93,7 @@ function initDeckEditor(onChanged) {
   });
   document.getElementById('editor-close').addEventListener('click', () => dialog.close());
   select.addEventListener('change', chooseClue);
+  fields.mediaType.addEventListener('change', () => { fields.mediaUrl.disabled = fields.mediaType.value === 'none'; });
   Object.values(fields).forEach(field => field.addEventListener('input', showPreview));
   document.getElementById('editor-save').addEventListener('click', () => {
     try {

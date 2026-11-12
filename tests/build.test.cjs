@@ -86,6 +86,7 @@ test('split entry points use the unified template and only their own controller'
   const views = splitViews(fs.readFileSync('index.html', 'utf8'));
   assert.ok(views.host.includes('host-font-scale-slider'));
   assert.ok(views.host.includes('dd-wager-error'));
+  assert.ok(views.host.includes('resolvedView'));
   assert.ok(!views.host.includes('src/js/board-ui.js'));
   assert.ok(!views.board.includes('src/js/host-ui.js'));
   assert.ok(views.board.includes('clue-answer-text'));
